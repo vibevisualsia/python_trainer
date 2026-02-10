@@ -1,0 +1,1255 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "id": "fund-01",
+      "title": "Fundamentos",
+      "description": "Primeros pasos con variables, tipos y strings.",
+      "lessons": [
+        {
+          "id": "fund-01-vars",
+          "title": "Variables y print",
+          "explanation": [
+            "Una variable guarda un dato con un nombre.",
+            "Puedes cambiar su valor cuando lo necesites.",
+            "Usa nombres claros para entender el codigo.",
+            "El operador = asigna un valor a la variable.",
+            "print muestra un valor en pantalla.",
+            "Primero asigna, luego imprime."
+          ],
+          "key_points": [
+            "Asignacion con =",
+            "Nombres claros",
+            "print muestra valores"
+          ],
+          "exercises": [
+            {
+              "id": "fund-01-vars-e1",
+              "title": "Suma simple",
+              "statement": "Usa a=2 y b=3 para calcular la suma total y guardala en total.",
+              "example": "x = 1\ny = 4\nsuma = x + y",
+              "starter_code": "a = 2\nb = 3\ntotal = None\n# calcula total\n",
+              "hints": [
+                "Usa el operador + para sumar.",
+                "Guarda el resultado en la variable total."
+              ],
+              "solution": "a = 2\nb = 3\ntotal = a + b\n",
+              "checks": [
+                { "type": "equals", "var": "total", "expected": 5 }
+              ]
+            },
+            {
+              "id": "fund-01-vars-e2",
+              "title": "Concatenacion de texto",
+              "statement": "Crea nombre='Ana' y saludo con el valor 'Hola, Ana'.",
+              "example": "persona = 'Luis'\nmensaje = 'Hola, ' + persona",
+              "starter_code": "nombre = 'Ana'\nsaludo = ''\n# crea saludo\n",
+              "hints": [
+                "Puedes usar + para unir textos.",
+                "El saludo debe quedar exactamente 'Hola, Ana'."
+              ],
+              "solution": "nombre = 'Ana'\nsaludo = 'Hola, ' + nombre\n",
+              "checks": [
+                { "type": "equals", "var": "saludo", "expected": "Hola, Ana" }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "fund-01-types",
+          "title": "Tipos basicos",
+          "explanation": [
+            "Los tipos comunes son int, str y bool.",
+            "int representa numeros enteros.",
+            "str representa texto entre comillas.",
+            "bool solo puede ser True o False.",
+            "Puedes convertir texto a numero con int().",
+            "Comprueba siempre el tipo que necesitas."
+          ],
+          "key_points": [
+            "int, str, bool",
+            "True y False",
+            "int() convierte texto"
+          ],
+          "exercises": [
+            {
+              "id": "fund-01-types-e1",
+              "title": "Crear valores",
+              "statement": "Crea precio=20 y es_caro=False.",
+              "example": "cantidad = 5\nactivo = True",
+              "starter_code": "precio = None\nes_caro = None\n# asigna valores\n",
+              "hints": [
+                "precio debe ser un numero entero.",
+                "es_caro debe ser False."
+              ],
+              "solution": "precio = 20\nes_caro = False\n",
+              "checks": [
+                { "type": "equals", "var": "precio", "expected": 20 },
+                { "type": "equals", "var": "es_caro", "expected": false }
+              ]
+            },
+            {
+              "id": "fund-01-types-e2",
+              "title": "Texto a numero",
+              "statement": "Convierte el texto '7' a numero y guardalo en numero.",
+              "example": "dato = '10'\nvalor = int(dato)",
+              "starter_code": "texto = '7'\nnumero = None\n# convierte texto a numero\n",
+              "hints": [
+                "Usa int(texto).",
+                "numero debe ser 7."
+              ],
+              "solution": "texto = '7'\nnumero = int(texto)\n",
+              "checks": [
+                { "type": "equals", "var": "numero", "expected": 7 }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "fund-01-strings",
+          "title": "Strings basicos",
+          "explanation": [
+            "Un string es texto entre comillas.",
+            "Puedes conocer su longitud con len().",
+            "upper() convierte a mayusculas.",
+            "lower() convierte a minusculas.",
+            "strip() quita espacios extremos.",
+            "Los strings son utiles para mensajes."
+          ],
+          "key_points": [
+            "len(texto)",
+            "upper() y lower()",
+            "strip() limpia espacios"
+          ],
+          "exercises": [
+            {
+              "id": "fund-01-strings-e1",
+              "title": "Longitud de texto",
+              "statement": "Dado texto='python', guarda en longitud la longitud del texto.",
+              "example": "palabra = 'hola'\nsize = len(palabra)",
+              "starter_code": "texto = 'python'\nlongitud = None\n# calcula longitud\n",
+              "hints": [
+                "Usa len(texto).",
+                "longitud debe ser 6."
+              ],
+              "solution": "texto = 'python'\nlongitud = len(texto)\n",
+              "checks": [
+                { "type": "equals", "var": "longitud", "expected": 6 }
+              ]
+            },
+            {
+              "id": "fund-01-strings-e2",
+              "title": "Mayusculas",
+              "statement": "Dado texto='hola', crea resultado con el texto en mayusculas.",
+              "example": "t = 'adios'\nmay = t.upper()",
+              "starter_code": "texto = 'hola'\nresultado = ''\n# convierte a mayusculas\n",
+              "hints": [
+                "Usa texto.upper().",
+                "resultado debe ser 'HOLA'."
+              ],
+              "solution": "texto = 'hola'\nresultado = texto.upper()\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": "HOLA" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "op-01",
+      "title": "Operadores y comparaciones",
+      "description": "Operaciones aritmeticas y comparaciones booleanas.",
+      "lessons": [
+        {
+          "id": "op-01-arit",
+          "title": "Operadores aritmeticos",
+          "explanation": [
+            "Suma con +, resta con -.",
+            "Multiplica con * y divide con / o //.",
+            "Usa // para division entera.",
+            "Puedes agrupar con parentesis.",
+            "Guarda el resultado en una variable.",
+            "Comprueba el valor final."
+          ],
+          "key_points": [
+            "+, -, *, /",
+            "Division entera con //",
+            "Guarda en variables"
+          ],
+          "exercises": [
+            {
+              "id": "op-01-arit-e1",
+              "title": "Producto",
+              "statement": "Calcula producto=a*b con a=4 y b=5.",
+              "example": "x = 2\ny = 6\nprod = x * y",
+              "starter_code": "a = 4\nb = 5\nproducto = None\n# calcula producto\n",
+              "hints": [
+                "Multiplica a por b.",
+                "Guarda en producto."
+              ],
+              "solution": "a = 4\nb = 5\nproducto = a * b\n",
+              "checks": [
+                { "type": "equals", "var": "producto", "expected": 20 }
+              ]
+            },
+            {
+              "id": "op-01-arit-e2",
+              "title": "Division entera",
+              "statement": "Reparte total=17 entre personas=5 usando division entera y guarda en por_persona.",
+              "example": "total = 9\npersonas = 2\nr = total // personas",
+              "starter_code": "total = 17\npersonas = 5\npor_persona = None\n# division entera\n",
+              "hints": [
+                "Usa el operador //.",
+                "por_persona debe ser 3."
+              ],
+              "solution": "total = 17\npersonas = 5\npor_persona = total // personas\n",
+              "checks": [
+                { "type": "equals", "var": "por_persona", "expected": 3 }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "op-01-comp",
+          "title": "Comparaciones",
+          "explanation": [
+            "Las comparaciones dan True o False.",
+            "Usa >, <, >=, <=, ==, !=.",
+            "Guarda el resultado en una variable.",
+            "Las comparaciones ayudan en condiciones.",
+            "Recuerda: == compara, = asigna.",
+            "Comprueba el valor booleano final."
+          ],
+          "key_points": [
+            "Comparaciones booleanas",
+            "True y False",
+            "== para comparar"
+          ],
+          "exercises": [
+            {
+              "id": "op-01-comp-e1",
+              "title": "Mayor que",
+              "statement": "Con x=10 e y=7, guarda en es_mayor si x es mayor que y.",
+              "example": "a = 3\nb = 8\nres = a > b",
+              "starter_code": "x = 10\ny = 7\nes_mayor = None\n# compara x > y\n",
+              "hints": [
+                "Usa el operador >.",
+                "es_mayor debe ser True."
+              ],
+              "solution": "x = 10\ny = 7\nes_mayor = x > y\n",
+              "checks": [
+                { "type": "equals", "var": "es_mayor", "expected": true }
+              ]
+            },
+            {
+              "id": "op-01-comp-e2",
+              "title": "Mayor o igual",
+              "statement": "Con edad=18, guarda en es_mayor_o_igual si edad es mayor o igual que 18.",
+              "example": "edad = 16\nok = edad >= 18",
+              "starter_code": "edad = 18\nes_mayor_o_igual = None\n# compara edad >= 18\n",
+              "hints": [
+                "Usa el operador >=.",
+                "El resultado debe ser True."
+              ],
+              "solution": "edad = 18\nes_mayor_o_igual = edad >= 18\n",
+              "checks": [
+                { "type": "equals", "var": "es_mayor_o_igual", "expected": true }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "op-01-logica",
+          "title": "Logica booleana",
+          "explanation": [
+            "and es True si ambas partes son True.",
+            "or es True si alguna parte es True.",
+            "not invierte un booleano.",
+            "Combina condiciones para decidir.",
+            "Guarda el resultado en una variable.",
+            "Comprueba el resultado final."
+          ],
+          "key_points": [
+            "and, or, not",
+            "Combinar condiciones",
+            "Guardar resultado"
+          ],
+          "exercises": [
+            {
+              "id": "op-01-logica-e1",
+              "title": "Acceso permitido",
+              "statement": "Si tiene_credencial=True y tiene_bloqueo=False, guarda en puede_entrar el resultado.",
+              "example": "a = True\nb = True\nok = a and b",
+              "starter_code": "tiene_credencial = True\ntiene_bloqueo = False\npuede_entrar = None\n# calcula puede_entrar\n",
+              "hints": [
+                "Usa and y not.",
+                "Debe quedar True."
+              ],
+              "solution": "tiene_credencial = True\ntiene_bloqueo = False\npuede_entrar = tiene_credencial and (not tiene_bloqueo)\n",
+              "checks": [
+                { "type": "equals", "var": "puede_entrar", "expected": true }
+              ]
+            },
+            {
+              "id": "op-01-logica-e2",
+              "title": "Dia de descanso",
+              "statement": "Si es_fin_de_semana=False y es_festivo=True, guarda en descanso si es dia libre.",
+              "example": "fin = False\nfestivo = False\nlibre = fin or festivo",
+              "starter_code": "es_fin_de_semana = False\nes_festivo = True\ndescanso = None\n# calcula descanso\n",
+              "hints": [
+                "Usa or.",
+                "Debe quedar True."
+              ],
+              "solution": "es_fin_de_semana = False\nes_festivo = True\ndescanso = es_fin_de_semana or es_festivo\n",
+              "checks": [
+                { "type": "equals", "var": "descanso", "expected": true }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ctrl-01",
+      "title": "Control de flujo",
+      "description": "Decisiones y bucles basicos.",
+      "lessons": [
+        {
+          "id": "ctrl-01-if",
+          "title": "Condicionales",
+          "explanation": [
+            "if ejecuta un bloque si la condicion es True.",
+            "else ejecuta el bloque contrario.",
+            "elif permite varias condiciones.",
+            "Las condiciones usan comparaciones booleanas.",
+            "Alinea el codigo con sangria.",
+            "Guarda el resultado en una variable."
+          ],
+          "key_points": [
+            "if / elif / else",
+            "Condiciones booleanas",
+            "Sangria correcta"
+          ],
+          "exercises": [
+            {
+              "id": "ctrl-01-if-e1",
+              "title": "Etiqueta menor",
+              "statement": "Con x=3, guarda en etiqueta 'menor' si x<5, si no 'mayor_igual'.",
+              "example": "x = 8\netiqueta = 'menor' if x < 5 else 'mayor_igual'",
+              "starter_code": "x = 3\netiqueta = ''\n# asigna etiqueta\n",
+              "hints": [
+                "Usa if/else.",
+                "Para x=3, etiqueta debe ser 'menor'."
+              ],
+              "solution": "x = 3\nif x < 5:\n    etiqueta = 'menor'\nelse:\n    etiqueta = 'mayor_igual'\n",
+              "checks": [
+                { "type": "equals", "var": "etiqueta", "expected": "menor" }
+              ]
+            },
+            {
+              "id": "ctrl-01-if-e2",
+              "title": "Par o impar",
+              "statement": "Con n=7, guarda en es_par True si es par, si no False.",
+              "example": "n = 10\nes_par = n % 2 == 0",
+              "starter_code": "n = 7\nes_par = None\n# calcula es_par\n",
+              "hints": [
+                "Usa n % 2 == 0.",
+                "Para 7, es_par es False."
+              ],
+              "solution": "n = 7\nes_par = (n % 2 == 0)\n",
+              "checks": [
+                { "type": "equals", "var": "es_par", "expected": false }
+              ]
+            },
+            {
+              "id": "ctrl-01-if-e3",
+              "title": "Estado de nota",
+              "statement": "Con nota=7, guarda en estado: 'suspenso' si <5, 'aprobado' si <9, 'sobresaliente' si no.",
+              "example": "nota = 9\nestado = 'sobresaliente' if nota >= 9 else 'aprobado'",
+              "starter_code": "nota = 7\nestado = ''\n# calcula estado\n",
+              "hints": [
+                "Usa if/elif/else.",
+                "Para 7, estado es 'aprobado'."
+              ],
+              "solution": "nota = 7\nif nota < 5:\n    estado = 'suspenso'\nelif nota < 9:\n    estado = 'aprobado'\nelse:\n    estado = 'sobresaliente'\n",
+              "checks": [
+                { "type": "equals", "var": "estado", "expected": "aprobado" }
+              ]
+            },
+            {
+              "id": "ctrl-01-if-e4",
+              "title": "Permiso para conducir",
+              "statement": "Con edad=20 y permiso=True, guarda en puede_conducir True si edad>=18 y permiso.",
+              "example": "edad = 17\npermiso = True\nok = edad >= 18 and permiso",
+              "starter_code": "edad = 20\npermiso = True\npuede_conducir = None\n# calcula puede_conducir\n",
+              "hints": [
+                "Usa and para combinar.",
+                "Debe quedar True."
+              ],
+              "solution": "edad = 20\npermiso = True\npuede_conducir = edad >= 18 and permiso\n",
+              "checks": [
+                { "type": "equals", "var": "puede_conducir", "expected": true }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ctrl-01-for",
+          "title": "Bucles for",
+          "explanation": [
+            "for recorre elementos de una lista.",
+            "range(n) genera numeros de 0 a n-1.",
+            "Puedes acumular resultados en una variable.",
+            "Usa if dentro del bucle para filtrar.",
+            "Guarda el resultado final.",
+            "Comprueba al final que coincide."
+          ],
+          "key_points": [
+            "for y range",
+            "Acumular resultados",
+            "Filtrar con if"
+          ],
+          "exercises": [
+            {
+              "id": "ctrl-01-for-e1",
+              "title": "Suma 1..5",
+              "statement": "Usa un for para sumar del 1 al 5 y guarda en suma.",
+              "example": "s = 0\nfor i in range(1, 4):\n    s += i",
+              "starter_code": "suma = 0\n# suma del 1 al 5\n",
+              "hints": [
+                "Usa range(1, 6).",
+                "suma debe ser 15."
+              ],
+              "solution": "suma = 0\nfor i in range(1, 6):\n    suma += i\n",
+              "checks": [
+                { "type": "equals", "var": "suma", "expected": 15 }
+              ]
+            },
+            {
+              "id": "ctrl-01-for-e2",
+              "title": "Contar pares",
+              "statement": "Cuenta cuantos pares hay en nums=[1,2,3,4,5,6] y guarda en pares.",
+              "example": "nums = [2, 5, 8]\ncount = 0\nfor n in nums:\n    if n % 2 == 0:\n        count += 1",
+              "starter_code": "nums = [1, 2, 3, 4, 5, 6]\npares = 0\n# cuenta pares\n",
+              "hints": [
+                "Un numero es par si n % 2 == 0.",
+                "pares debe ser 3."
+              ],
+              "solution": "nums = [1, 2, 3, 4, 5, 6]\npares = 0\nfor n in nums:\n    if n % 2 == 0:\n        pares += 1\n",
+              "checks": [
+                { "type": "equals", "var": "pares", "expected": 3 }
+              ]
+            },
+            {
+              "id": "ctrl-01-for-e3",
+              "title": "Dobles",
+              "statement": "Crea la lista dobles con los dobles de nums=[1,2,3].",
+              "example": "nums = [2, 4]\nres = []\nfor n in nums:\n    res.append(n * 2)",
+              "starter_code": "nums = [1, 2, 3]\ndobles = []\n# crea dobles\n",
+              "hints": [
+                "Usa un for y append.",
+                "dobles debe ser [2, 4, 6]."
+              ],
+              "solution": "nums = [1, 2, 3]\ndobles = []\nfor n in nums:\n    dobles.append(n * 2)\n",
+              "checks": [
+                { "type": "equals", "var": "dobles", "expected": [2, 4, 6] }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ctrl-01-while",
+          "title": "Bucles while",
+          "explanation": [
+            "while repite mientras la condicion sea True.",
+            "Debes actualizar la variable de control.",
+            "Evita bucles infinitos.",
+            "Puedes acumular resultados.",
+            "Comienza con un valor inicial claro.",
+            "Comprueba el valor final."
+          ],
+          "key_points": [
+            "while y condicion",
+            "Actualizar la variable",
+            "Evitar infinito"
+          ],
+          "exercises": [
+            {
+              "id": "ctrl-01-while-e1",
+              "title": "Contador simple",
+              "statement": "Usa while para contar desde i=1 hasta i=3. Al final i debe ser 4.",
+              "example": "i = 1\nwhile i <= 2:\n    i += 1",
+              "starter_code": "i = 1\n# usa while\n",
+              "hints": [
+                "La condicion puede ser i <= 3.",
+                "Al final i debe ser 4."
+              ],
+              "solution": "i = 1\nwhile i <= 3:\n    i += 1\n",
+              "checks": [
+                { "type": "equals", "var": "i", "expected": 4 }
+              ]
+            },
+            {
+              "id": "ctrl-01-while-e2",
+              "title": "Suma 1..4",
+              "statement": "Usa while para sumar del 1 al 4 y guarda en suma.",
+              "example": "s = 0\ni = 1\nwhile i <= 3:\n    s += i\n    i += 1",
+              "starter_code": "suma = 0\ni = 1\n# suma del 1 al 4\n",
+              "hints": [
+                "Usa while i <= 4.",
+                "suma debe ser 10."
+              ],
+              "solution": "suma = 0\ni = 1\nwhile i <= 4:\n    suma += i\n    i += 1\n",
+              "checks": [
+                { "type": "equals", "var": "suma", "expected": 10 }
+              ]
+            },
+            {
+              "id": "ctrl-01-while-e3",
+              "title": "Buscar mayor que 10",
+              "statement": "En lista=[3,12,5], busca el primer valor >10 y guarda en encontrado.",
+              "example": "lista = [2, 11, 1]\nidx = 0\nres = None\nwhile idx < len(lista):\n    if lista[idx] > 10:\n        res = lista[idx]\n        break\n    idx += 1",
+              "starter_code": "lista = [3, 12, 5]\nidx = 0\nencontrado = None\n# busca el primero > 10\n",
+              "hints": [
+                "Recorre con idx y len(lista).",
+                "Para estos datos, encontrado debe ser 12."
+              ],
+              "solution": "lista = [3, 12, 5]\nidx = 0\nencontrado = None\nwhile idx < len(lista):\n    if lista[idx] > 10:\n        encontrado = lista[idx]\n        break\n    idx += 1\n",
+              "checks": [
+                { "type": "equals", "var": "encontrado", "expected": 12 }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "data-01",
+      "title": "Listas",
+      "description": "Crear, modificar y recorrer listas.",
+      "lessons": [
+        {
+          "id": "data-01-basics",
+          "title": "Listas basicas",
+          "explanation": [
+            "Una lista guarda varios valores en orden.",
+            "Se crea con corchetes [].",
+            "append agrega un elemento al final.",
+            "Puedes acceder por indice lista[0].",
+            "len(lista) devuelve el tamano.",
+            "Guarda el resultado en una variable."
+          ],
+          "key_points": [
+            "[] para crear",
+            "append agrega",
+            "len() cuenta"
+          ],
+          "exercises": [
+            {
+              "id": "data-01-basics-e1",
+              "title": "Agregar elemento",
+              "statement": "Crea nums=[1,2] y agrega 3 con append.",
+              "example": "lista = [5]\nlista.append(6)",
+              "starter_code": "nums = [1, 2]\n# agrega 3\n",
+              "hints": [
+                "Usa nums.append(3).",
+                "nums debe ser [1, 2, 3]."
+              ],
+              "solution": "nums = [1, 2]\nnums.append(3)\n",
+              "checks": [
+                { "type": "equals", "var": "nums", "expected": [1, 2, 3] }
+              ]
+            },
+            {
+              "id": "data-01-basics-e2",
+              "title": "Longitud",
+              "statement": "Dada valores=[5,6,7], guarda en longitud la longitud de la lista.",
+              "example": "v = [9, 8]\nsize = len(v)",
+              "starter_code": "valores = [5, 6, 7]\nlongitud = None\n# calcula longitud\n",
+              "hints": [
+                "Usa len(valores).",
+                "longitud debe ser 3."
+              ],
+              "solution": "valores = [5, 6, 7]\nlongitud = len(valores)\n",
+              "checks": [
+                { "type": "equals", "var": "longitud", "expected": 3 }
+              ]
+            },
+            {
+              "id": "data-01-basics-e3",
+              "title": "Cambiar elemento",
+              "statement": "Cambia el segundo elemento de colores=['rojo','verde','azul'] a 'amarillo'.",
+              "example": "colores = ['a', 'b']\ncolores[1] = 'c'",
+              "starter_code": "colores = ['rojo', 'verde', 'azul']\n# cambia el segundo elemento\n",
+              "hints": [
+                "El segundo indice es 1.",
+                "La lista debe quedar con 'amarillo'."
+              ],
+              "solution": "colores = ['rojo', 'verde', 'azul']\ncolores[1] = 'amarillo'\n",
+              "checks": [
+                { "type": "equals", "var": "colores", "expected": ["rojo", "amarillo", "azul"] }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data-01-loops",
+          "title": "Listas con bucles",
+          "explanation": [
+            "Puedes recorrer una lista con for.",
+            "Acumula resultados en variables.",
+            "Crea listas nuevas con append.",
+            "Usa if para filtrar elementos.",
+            "Comprueba el resultado final.",
+            "Guarda en una variable clara."
+          ],
+          "key_points": [
+            "for recorre listas",
+            "append crea nueva lista",
+            "if filtra"
+          ],
+          "exercises": [
+            {
+              "id": "data-01-loops-e1",
+              "title": "Suma de lista",
+              "statement": "Suma los elementos de nums=[2,4,6] y guarda en suma.",
+              "example": "nums = [1, 2]\nacc = 0\nfor n in nums:\n    acc += n",
+              "starter_code": "nums = [2, 4, 6]\nsuma = 0\n# suma la lista\n",
+              "hints": [
+                "Usa un for y suma cada elemento.",
+                "suma debe ser 12."
+              ],
+              "solution": "nums = [2, 4, 6]\nsuma = 0\nfor n in nums:\n    suma += n\n",
+              "checks": [
+                { "type": "equals", "var": "suma", "expected": 12 }
+              ]
+            },
+            {
+              "id": "data-01-loops-e2",
+              "title": "Maximo de lista",
+              "statement": "Encuentra el maximo de nums=[3,9,1] y guardalo en maximo.",
+              "example": "nums = [5, 2, 7]\nmaximo = nums[0]\nfor n in nums:\n    if n > maximo:\n        maximo = n",
+              "starter_code": "nums = [3, 9, 1]\nmaximo = nums[0]\n# busca maximo\n",
+              "hints": [
+                "Compara cada elemento con maximo.",
+                "maximo debe ser 9."
+              ],
+              "solution": "nums = [3, 9, 1]\nmaximo = nums[0]\nfor n in nums:\n    if n > maximo:\n        maximo = n\n",
+              "checks": [
+                { "type": "equals", "var": "maximo", "expected": 9 }
+              ]
+            },
+            {
+              "id": "data-01-loops-e3",
+              "title": "Filtrar pares",
+              "statement": "Crea la lista pares con los pares de nums=[1,2,3,4].",
+              "example": "nums = [2, 5, 6]\nres = []\nfor n in nums:\n    if n % 2 == 0:\n        res.append(n)",
+              "starter_code": "nums = [1, 2, 3, 4]\npares = []\n# filtra pares\n",
+              "hints": [
+                "Usa n % 2 == 0.",
+                "pares debe ser [2, 4]."
+              ],
+              "solution": "nums = [1, 2, 3, 4]\npares = []\nfor n in nums:\n    if n % 2 == 0:\n        pares.append(n)\n",
+              "checks": [
+                { "type": "equals", "var": "pares", "expected": [2, 4] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "data-02",
+      "title": "Diccionarios",
+      "description": "Crear y recorrer diccionarios.",
+      "lessons": [
+        {
+          "id": "data-02-basics",
+          "title": "Diccionarios basicos",
+          "explanation": [
+            "Un diccionario guarda pares clave-valor.",
+            "Se crea con llaves {}.",
+            "Accede a un valor con dict['clave'].",
+            "Puedes actualizar valores existentes.",
+            "len(dict) devuelve numero de claves.",
+            "Guarda los resultados en variables."
+          ],
+          "key_points": [
+            "Claves y valores",
+            "{} para crear",
+            "Acceso por clave"
+          ],
+          "exercises": [
+            {
+              "id": "data-02-basics-e1",
+              "title": "Crear diccionario",
+              "statement": "Crea persona con nombre='Ana' y edad=30. Guarda en edad el valor de la clave 'edad'.",
+              "example": "persona = {'nombre': 'Luis', 'edad': 20}\nvalor = persona['edad']",
+              "starter_code": "persona = {}\nedad = None\n# crea persona y guarda edad\n",
+              "hints": [
+                "Define persona con dos claves.",
+                "edad debe ser 30."
+              ],
+              "solution": "persona = {'nombre': 'Ana', 'edad': 30}\nedad = persona['edad']\n",
+              "checks": [
+                { "type": "equals", "var": "edad", "expected": 30 }
+              ]
+            },
+            {
+              "id": "data-02-basics-e2",
+              "title": "Actualizar valor",
+              "statement": "Dado stock={'tornillos': 10}, suma 5 y guarda el total en total.",
+              "example": "stock = {'lapices': 2}\nstock['lapices'] += 1",
+              "starter_code": "stock = {'tornillos': 10}\ntotal = None\n# suma 5\n",
+              "hints": [
+                "Suma 5 a stock['tornillos'].",
+                "total debe ser 15."
+              ],
+              "solution": "stock = {'tornillos': 10}\nstock['tornillos'] += 5\ntotal = stock['tornillos']\n",
+              "checks": [
+                { "type": "equals", "var": "total", "expected": 15 }
+              ]
+            },
+            {
+              "id": "data-02-basics-e3",
+              "title": "Acceso por clave",
+              "statement": "Dado precios={'pan':1,'leche':2}, guarda en precio_leche el valor de 'leche'.",
+              "example": "precios = {'a': 9, 'b': 3}\nvalor = precios['b']",
+              "starter_code": "precios = {'pan': 1, 'leche': 2}\nprecio_leche = None\n# guarda precio de leche\n",
+              "hints": [
+                "Accede con precios['leche'].",
+                "precio_leche debe ser 2."
+              ],
+              "solution": "precios = {'pan': 1, 'leche': 2}\nprecio_leche = precios['leche']\n",
+              "checks": [
+                { "type": "equals", "var": "precio_leche", "expected": 2 }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data-02-loops",
+          "title": "Diccionarios con bucles",
+          "explanation": [
+            "Puedes recorrer claves con for.",
+            "dict.values() da los valores.",
+            "Suma valores con un acumulador.",
+            "Crea listas con append.",
+            "Guarda el resultado final.",
+            "Comprueba el valor esperado."
+          ],
+          "key_points": [
+            "Recorrer claves",
+            "Acumular valores",
+            "Crear listas"
+          ],
+          "exercises": [
+            {
+              "id": "data-02-loops-e1",
+              "title": "Sumar valores",
+              "statement": "Suma los valores de puntos={'a':2,'b':3,'c':4} y guarda en total.",
+              "example": "d = {'x': 1, 'y': 2}\nacc = 0\nfor k in d:\n    acc += d[k]",
+              "starter_code": "puntos = {'a': 2, 'b': 3, 'c': 4}\ntotal = 0\n# suma valores\n",
+              "hints": [
+                "Recorre las claves y suma el valor.",
+                "total debe ser 9."
+              ],
+              "solution": "puntos = {'a': 2, 'b': 3, 'c': 4}\ntotal = 0\nfor k in puntos:\n    total += puntos[k]\n",
+              "checks": [
+                { "type": "equals", "var": "total", "expected": 9 }
+              ]
+            },
+            {
+              "id": "data-02-loops-e2",
+              "title": "Contar claves",
+              "statement": "Dado items={'x':1,'y':2}, guarda en cantidad el numero de claves.",
+              "example": "datos = {'a': 1}\ncount = len(datos)",
+              "starter_code": "items = {'x': 1, 'y': 2}\ncantidad = None\n# cuenta claves\n",
+              "hints": [
+                "Usa len(items).",
+                "cantidad debe ser 2."
+              ],
+              "solution": "items = {'x': 1, 'y': 2}\ncantidad = len(items)\n",
+              "checks": [
+                { "type": "equals", "var": "cantidad", "expected": 2 }
+              ]
+            },
+            {
+              "id": "data-02-loops-e3",
+              "title": "Lista de claves",
+              "statement": "Crea la lista claves con las claves de datos={'a':1,'b':2}.",
+              "example": "d = {'x': 1, 'y': 2}\nclaves = []\nfor k in d:\n    claves.append(k)",
+              "starter_code": "datos = {'a': 1, 'b': 2}\nclaves = []\n# crea lista de claves\n",
+              "hints": [
+                "Recorre el diccionario con for.",
+                "claves debe ser ['a', 'b']."
+              ],
+              "solution": "datos = {'a': 1, 'b': 2}\nclaves = []\nfor k in datos:\n    claves.append(k)\n",
+              "checks": [
+                { "type": "equals", "var": "claves", "expected": ["a", "b"] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "str-01",
+      "title": "Strings y bucles",
+      "description": "Practica con texto y recorridos.",
+      "lessons": [
+        {
+          "id": "str-01-basics",
+          "title": "Practica (strings con for/while)",
+          "explanation": [
+            "Los strings se pueden recorrer letra a letra.",
+            "len() devuelve la longitud del texto.",
+            "upper(), lower() y strip() modifican texto.",
+            "Puedes contar caracteres con un acumulador.",
+            "Usa for o while segun te convenga.",
+            "Guarda el resultado en la variable indicada."
+          ],
+          "key_points": [
+            "Recorrer texto",
+            "Usar metodos de string",
+            "Guardar resultado"
+          ],
+          "exercises": [
+            {
+              "id": "str-01-e1",
+              "title": "Longitud de texto",
+              "statement": "Dado texto='python', guarda en longitud la longitud del texto.",
+              "example": "t = 'hola'\nsize = len(t)",
+              "starter_code": "texto = 'python'\nlongitud = None\n# calcula longitud\n",
+              "hints": [
+                "Usa len(texto).",
+                "longitud debe ser 6."
+              ],
+              "solution": "texto = 'python'\nlongitud = len(texto)\n",
+              "checks": [
+                { "type": "equals", "var": "longitud", "expected": 6 }
+              ]
+            },
+            {
+              "id": "str-01-e2",
+              "title": "Mayusculas",
+              "statement": "Dado texto='hola', crea resultado con el texto en mayusculas.",
+              "example": "pal = 'adios'\nres = pal.upper()",
+              "starter_code": "texto = 'hola'\nresultado = ''\n# convierte a mayusculas\n",
+              "hints": [
+                "Usa texto.upper().",
+                "resultado debe ser 'HOLA'."
+              ],
+              "solution": "texto = 'hola'\nresultado = texto.upper()\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": "HOLA" }
+              ]
+            },
+            {
+              "id": "str-01-e3",
+              "title": "Contar letras 'a'",
+              "statement": "Dado texto='banana', cuenta cuantas veces aparece la letra 'a' y guarda el numero en conteo.",
+              "example": "t = 'casa'\ncont = 0\nfor c in t:\n    if c == 'a':\n        cont += 1",
+              "starter_code": "texto = 'banana'\nconteo = 0\n# cuenta las 'a'\n",
+              "hints": [
+                "Recorre texto con for.",
+                "conteo debe ser 3."
+              ],
+              "solution": "texto = 'banana'\nconteo = 0\nfor c in texto:\n    if c == 'a':\n        conteo += 1\n",
+              "checks": [
+                { "type": "equals", "var": "conteo", "expected": 3 }
+              ]
+            },
+            {
+              "id": "str-01-e4",
+              "title": "Invertir texto",
+              "statement": "Dado texto='abcd', crea invertido con el texto al reves.",
+              "example": "t = 'xy'\ninv = ''\nfor c in t:\n    inv = c + inv",
+              "starter_code": "texto = 'abcd'\ninvertido = ''\n# crea invertido\n",
+              "hints": [
+                "Puedes ir agregando al inicio.",
+                "invertido debe ser 'dcba'."
+              ],
+              "solution": "texto = 'abcd'\ninvertido = ''\nfor c in texto:\n    invertido = c + invertido\n",
+              "checks": [
+                { "type": "equals", "var": "invertido", "expected": "dcba" }
+              ]
+            },
+            {
+              "id": "str-01-e5",
+              "title": "Quitar espacios",
+              "statement": "Dado texto='  hola  ', crea limpio sin espacios al principio ni al final.",
+              "example": "t = '  ok '\nlimpio = t.strip()",
+              "starter_code": "texto = '  hola  '\nlimpio = ''\n# quita espacios extremos\n",
+              "hints": [
+                "Usa strip().",
+                "limpio debe ser 'hola'."
+              ],
+              "solution": "texto = '  hola  '\nlimpio = texto.strip()\n",
+              "checks": [
+                { "type": "equals", "var": "limpio", "expected": "hola" }
+              ]
+            },
+            {
+              "id": "str-01-e6",
+              "title": "Vocales en texto",
+              "statement": "Dado texto='murcielago', cuenta cuantas vocales hay (a,e,i,o,u) y guarda el numero en vocales.",
+              "example": "t = 'mesa'\ncount = 0\nfor c in t:\n    if c in 'aeiou':\n        count += 1",
+              "starter_code": "texto = 'murcielago'\nvocales = 0\n# cuenta vocales\n",
+              "hints": [
+                "Usa 'aeiou' y un for.",
+                "vocales debe ser 5."
+              ],
+              "solution": "texto = 'murcielago'\nvocales = 0\nfor c in texto:\n    if c in 'aeiou':\n        vocales += 1\n",
+              "checks": [
+                { "type": "equals", "var": "vocales", "expected": 5 }
+              ]
+            },
+            {
+              "id": "str-01-e7",
+              "title": "Repetir con guiones",
+              "statement": "Dada palabra='go' y n=3, crea resultado 'go-go-go' (sin guion al final).",
+              "example": "pal = 'ha'\nres = ''\nfor i in range(3):\n    if i > 0:\n        res += '-'\n    res += pal",
+              "starter_code": "palabra = 'go'\nn = 3\nresultado = ''\n# construye resultado\n",
+              "hints": [
+                "Usa un for de 0 a n-1.",
+                "resultado debe ser 'go-go-go'."
+              ],
+              "solution": "palabra = 'go'\nn = 3\nresultado = ''\nfor i in range(n):\n    if i > 0:\n        resultado += '-'\n    resultado += palabra\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": "go-go-go" }
+              ]
+            },
+            {
+              "id": "str-01-e8",
+              "title": "Iniciales",
+              "statement": "Dado texto='hola mundo', guarda en iniciales las iniciales en mayusculas separadas por punto: 'H.M'.",
+              "example": "t = 'ana luis'\nparts = t.split()\nres = parts[0][0].upper() + '.' + parts[1][0].upper()",
+              "starter_code": "texto = 'hola mundo'\niniciales = ''\n# crea iniciales\n",
+              "hints": [
+                "Puedes usar split().",
+                "iniciales debe ser 'H.M'."
+              ],
+              "solution": "texto = 'hola mundo'\npartes = texto.split()\niniciales = partes[0][0].upper() + '.' + partes[1][0].upper()\n",
+              "checks": [
+                { "type": "equals", "var": "iniciales", "expected": "H.M" }
+              ]
+            },
+            {
+              "id": "str-01-e9",
+              "title": "Contar digitos",
+              "statement": "Dado texto='a1b2c3', cuenta cuantos caracteres son digitos y guarda en digitos.",
+              "example": "t = 'a9'\ncount = 0\nfor c in t:\n    if c.isdigit():\n        count += 1",
+              "starter_code": "texto = 'a1b2c3'\ndigitos = 0\n# cuenta digitos\n",
+              "hints": [
+                "Usa c.isdigit().",
+                "digitos debe ser 3."
+              ],
+              "solution": "texto = 'a1b2c3'\ndigitos = 0\nfor c in texto:\n    if c.isdigit():\n        digitos += 1\n",
+              "checks": [
+                { "type": "equals", "var": "digitos", "expected": 3 }
+              ]
+            },
+            {
+              "id": "str-01-e10",
+              "title": "Eliminar una letra",
+              "statement": "Dado texto='mississippi', crea resultado eliminando todas las letras 's'.",
+              "example": "t = 'casa'\nres = t.replace('a', '')",
+              "starter_code": "texto = 'mississippi'\nresultado = ''\n# elimina las 's'\n",
+              "hints": [
+                "Puedes usar replace('s','').",
+                "resultado debe ser 'miippi'."
+              ],
+              "solution": "texto = 'mississippi'\nresultado = texto.replace('s', '')\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": "miippi" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "func-01",
+      "title": "Funciones",
+      "description": "Definir y usar funciones.",
+      "lessons": [
+        {
+          "id": "func-01-basic",
+          "title": "Funciones basicas",
+          "explanation": [
+            "Una funcion agrupa instrucciones con un nombre.",
+            "Se define con def nombre(parametros).",
+            "Puede devolver un valor con return.",
+            "Llama a la funcion con parentesis.",
+            "Usa parametros para reutilizar.",
+            "Guarda el resultado en una variable."
+          ],
+          "key_points": [
+            "def y return",
+            "Parametros",
+            "Guardar resultado"
+          ],
+          "exercises": [
+            {
+              "id": "func-01-basic-e1",
+              "title": "Funcion suma",
+              "statement": "Define suma(a, b) que devuelva a+b. Guarda en resultado suma(2, 3).",
+              "example": "def suma(a, b):\n    return a + b\nres = suma(1, 2)",
+              "starter_code": "# define suma(a, b)\n\nresultado = None\n# guarda resultado\n",
+              "hints": [
+                "Usa return a + b.",
+                "resultado debe ser 5."
+              ],
+              "solution": "def suma(a, b):\n    return a + b\n\nresultado = suma(2, 3)\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": 5 }
+              ]
+            },
+            {
+              "id": "func-01-basic-e2",
+              "title": "Funcion doble",
+              "statement": "Define doble(x) que devuelva x*2. Guarda en resultado doble(4).",
+              "example": "def doble(x):\n    return x * 2\nres = doble(3)",
+              "starter_code": "# define doble(x)\n\nresultado = None\n# guarda resultado\n",
+              "hints": [
+                "La funcion debe devolver x*2.",
+                "resultado debe ser 8."
+              ],
+              "solution": "def doble(x):\n    return x * 2\n\nresultado = doble(4)\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": 8 }
+              ]
+            },
+            {
+              "id": "func-01-basic-e3",
+              "title": "Funcion es_par",
+              "statement": "Define es_par(n) que devuelva True si n es par. Guarda en resultado es_par(6).",
+              "example": "def es_par(n):\n    return n % 2 == 0\nres = es_par(5)",
+              "starter_code": "# define es_par(n)\n\nresultado = None\n# guarda resultado\n",
+              "hints": [
+                "Usa n % 2 == 0.",
+                "resultado debe ser True."
+              ],
+              "solution": "def es_par(n):\n    return n % 2 == 0\n\nresultado = es_par(6)\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": true }
+              ]
+            },
+            {
+              "id": "func-01-basic-e4",
+              "title": "Funcion saludo",
+              "statement": "Define saludo(nombre) que devuelva 'Hola ' + nombre. Guarda en saludo_final saludo('Ana').",
+              "example": "def saludo(nombre):\n    return 'Hola ' + nombre\nres = saludo('Luis')",
+              "starter_code": "# define saludo(nombre)\n\nsaludo_final = ''\n# guarda saludo_final\n",
+              "hints": [
+                "Devuelve 'Hola ' + nombre.",
+                "saludo_final debe ser 'Hola Ana'."
+              ],
+              "solution": "def saludo(nombre):\n    return 'Hola ' + nombre\n\nsaludo_final = saludo('Ana')\n",
+              "checks": [
+                { "type": "equals", "var": "saludo_final", "expected": "Hola Ana" }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "func-01-lists",
+          "title": "Funciones con listas",
+          "explanation": [
+            "Una funcion puede recibir una lista.",
+            "Recorre la lista con for.",
+            "Devuelve un resultado calculado.",
+            "Puedes contar o sumar elementos.",
+            "Guarda el valor retornado.",
+            "Comprueba el resultado final."
+          ],
+          "key_points": [
+            "Funciones con listas",
+            "Recorrer con for",
+            "return devuelve valor"
+          ],
+          "exercises": [
+            {
+              "id": "func-01-lists-e1",
+              "title": "Sumar lista",
+              "statement": "Define total_lista(nums) que devuelva la suma. Guarda en resultado total_lista([1,2,3]).",
+              "example": "def total_lista(nums):\n    total = 0\n    for n in nums:\n        total += n\n    return total",
+              "starter_code": "# define total_lista(nums)\n\nresultado = None\n# guarda resultado\n",
+              "hints": [
+                "Suma con un acumulador.",
+                "resultado debe ser 6."
+              ],
+              "solution": "def total_lista(nums):\n    total = 0\n    for n in nums:\n        total += n\n    return total\n\nresultado = total_lista([1, 2, 3])\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": 6 }
+              ]
+            },
+            {
+              "id": "func-01-lists-e2",
+              "title": "Contar letra",
+              "statement": "Define contar_letra(texto, letra) y guarda en resultado contar_letra('banana','a').",
+              "example": "def contar_letra(texto, letra):\n    c = 0\n    for ch in texto:\n        if ch == letra:\n            c += 1\n    return c",
+              "starter_code": "# define contar_letra(texto, letra)\n\nresultado = None\n# guarda resultado\n",
+              "hints": [
+                "Recorre el texto y cuenta coincidencias.",
+                "resultado debe ser 3."
+              ],
+              "solution": "def contar_letra(texto, letra):\n    c = 0\n    for ch in texto:\n        if ch == letra:\n            c += 1\n    return c\n\nresultado = contar_letra('banana', 'a')\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": 3 }
+              ]
+            },
+            {
+              "id": "func-01-lists-e3",
+              "title": "Maximo de lista",
+              "statement": "Define maximo(nums) que devuelva el mayor. Guarda en resultado maximo([3,9,1]).",
+              "example": "def maximo(nums):\n    m = nums[0]\n    for n in nums:\n        if n > m:\n            m = n\n    return m",
+              "starter_code": "# define maximo(nums)\n\nresultado = None\n# guarda resultado\n",
+              "hints": [
+                "Compara cada elemento.",
+                "resultado debe ser 9."
+              ],
+              "solution": "def maximo(nums):\n    m = nums[0]\n    for n in nums:\n        if n > m:\n            m = n\n    return m\n\nresultado = maximo([3, 9, 1])\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": 9 }
+              ]
+            },
+            {
+              "id": "func-01-lists-e4",
+              "title": "Unir palabras",
+              "statement": "Define unir(palabras) que devuelva 'a-b-c' para ['a','b','c']. Guarda en resultado.",
+              "example": "def unir(palabras):\n    res = ''\n    for i, p in enumerate(palabras):\n        if i > 0:\n            res += '-'\n        res += p\n    return res",
+              "starter_code": "# define unir(palabras)\n\nresultado = ''\n# guarda resultado\n",
+              "hints": [
+                "Usa un bucle y agrega '-' entre palabras.",
+                "resultado debe ser 'a-b-c'."
+              ],
+              "solution": "def unir(palabras):\n    res = ''\n    for i, p in enumerate(palabras):\n        if i > 0:\n            res += '-'\n        res += p\n    return res\n\nresultado = unir(['a', 'b', 'c'])\n",
+              "checks": [
+                { "type": "equals", "var": "resultado", "expected": "a-b-c" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "practice-01",
+      "title": "Repaso",
+      "description": "Problemas mezclados para consolidar.",
+      "lessons": [
+        {
+          "id": "practice-01-mix",
+          "title": "Mini retos",
+          "explanation": [
+            "Combina lo aprendido en ejercicios cortos.",
+            "Lee el enunciado y planifica pasos.",
+            "Usa bucles cuando haga falta.",
+            "Guarda resultados en variables claras.",
+            "Comprueba el resultado final.",
+            "Repite si no sale a la primera."
+          ],
+          "key_points": [
+            "Aplicar conceptos",
+            "Pasos claros",
+            "Revisar resultado"
+          ],
+          "exercises": [
+            {
+              "id": "practice-01-e1",
+              "title": "Cuadrados",
+              "statement": "Crea la lista cuadrados con los cuadrados de nums=[1,2,3,4].",
+              "example": "nums = [2, 3]\nres = []\nfor n in nums:\n    res.append(n * n)",
+              "starter_code": "nums = [1, 2, 3, 4]\ncuadrados = []\n# crea cuadrados\n",
+              "hints": [
+                "Usa n * n.",
+                "cuadrados debe ser [1, 4, 9, 16]."
+              ],
+              "solution": "nums = [1, 2, 3, 4]\ncuadrados = []\nfor n in nums:\n    cuadrados.append(n * n)\n",
+              "checks": [
+                { "type": "equals", "var": "cuadrados", "expected": [1, 4, 9, 16] }
+              ]
+            },
+            {
+              "id": "practice-01-e2",
+              "title": "Invertir palabra",
+              "statement": "Dado texto='hola', crea invertido con el texto al reves.",
+              "example": "t = 'ab'\ninv = ''\nfor c in t:\n    inv = c + inv",
+              "starter_code": "texto = 'hola'\ninvertido = ''\n# invierte texto\n",
+              "hints": [
+                "Agrega cada letra al inicio.",
+                "invertido debe ser 'aloh'."
+              ],
+              "solution": "texto = 'hola'\ninvertido = ''\nfor c in texto:\n    invertido = c + invertido\n",
+              "checks": [
+                { "type": "equals", "var": "invertido", "expected": "aloh" }
+              ]
+            },
+            {
+              "id": "practice-01-e3",
+              "title": "Sumar valores de dict",
+              "statement": "Dado datos={'a':1,'b':2,'c':3}, suma los valores y guarda en total.",
+              "example": "d = {'x': 2, 'y': 1}\nacc = 0\nfor k in d:\n    acc += d[k]",
+              "starter_code": "datos = {'a': 1, 'b': 2, 'c': 3}\ntotal = 0\n# suma valores\n",
+              "hints": [
+                "Recorre el diccionario y suma.",
+                "total debe ser 6."
+              ],
+              "solution": "datos = {'a': 1, 'b': 2, 'c': 3}\ntotal = 0\nfor k in datos:\n    total += datos[k]\n",
+              "checks": [
+                { "type": "equals", "var": "total", "expected": 6 }
+              ]
+            },
+            {
+              "id": "practice-01-e4",
+              "title": "Factorial",
+              "statement": "Con n=5, calcula factorial y guarda en factorial.",
+              "example": "n = 3\nf = 1\nwhile n > 0:\n    f *= n\n    n -= 1",
+              "starter_code": "n = 5\nfactorial = 1\n# calcula factorial\n",
+              "hints": [
+                "Multiplica de n hasta 1.",
+                "factorial debe ser 120."
+              ],
+              "solution": "n = 5\nfactorial = 1\nwhile n > 0:\n    factorial *= n\n    n -= 1\n",
+              "checks": [
+                { "type": "equals", "var": "factorial", "expected": 120 }
+              ]
+            },
+            {
+              "id": "practice-01-e5",
+              "title": "Filtrar mayores",
+              "statement": "Crea la lista mayores con los valores >5 de lista=[2,7,4,9].",
+              "example": "nums = [1, 6]\nres = []\nfor n in nums:\n    if n > 5:\n        res.append(n)",
+              "starter_code": "lista = [2, 7, 4, 9]\nmayores = []\n# filtra mayores\n",
+              "hints": [
+                "Usa if n > 5.",
+                "mayores debe ser [7, 9]."
+              ],
+              "solution": "lista = [2, 7, 4, 9]\nmayores = []\nfor n in lista:\n    if n > 5:\n        mayores.append(n)\n",
+              "checks": [
+                { "type": "equals", "var": "mayores", "expected": [7, 9] }
+              ]
+            },
+            {
+              "id": "practice-01-e6",
+              "title": "Iniciales de nombres",
+              "statement": "Dada lista de nombres ['Ana','Luis','Eva'], crea iniciales 'A.L.E'.",
+              "example": "nombres = ['Sol', 'Noa']\nres = ''\nfor i, n in enumerate(nombres):\n    if i > 0:\n        res += '.'\n    res += n[0]",
+              "starter_code": "nombres = ['Ana', 'Luis', 'Eva']\niniciales = ''\n# crea iniciales\n",
+              "hints": [
+                "Usa la primera letra de cada nombre.",
+                "iniciales debe ser 'A.L.E'."
+              ],
+              "solution": "nombres = ['Ana', 'Luis', 'Eva']\niniciales = ''\nfor i, n in enumerate(nombres):\n    if i > 0:\n        iniciales += '.'\n    iniciales += n[0]\n",
+              "checks": [
+                { "type": "equals", "var": "iniciales", "expected": "A.L.E" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

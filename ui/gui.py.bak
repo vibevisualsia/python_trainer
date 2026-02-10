@@ -1,0 +1,1211 @@
+import ast
+import io
+import queue
+import threading
+import time
+import traceback
+import tkinter as tk
+from contextlib import redirect_stderr, redirect_stdout
+from tkinter import messagebox, ttk
+from typing import Any, Dict
+import keyword
+import re
+
+from core.app_paths import get_progress_path
+from core.exercises import (
+    find_indices,
+    get_module_by_id,
+    get_modules,
+    next_position,
+    reload_catalog,
+)
+from core.progress import (
+    allowed_modules,
+    get_current_position,
+    get_record,
+    is_exercise_completed,
+    load_progress,
+    module_completed,
+    record_attempt,
+    set_current_position,
+    validate_current_pointer,
+)
+from core.validator import ValidationError, _check_code_is_safe, _safe_builtins, validate_user_code
+
+# Fuentes base para armonizar tamanos
+FONT_TITLE = ("Segoe UI", 16, "bold")
+FONT_SUBTITLE = ("Segoe UI", 12, "bold")
+FONT_TEXT = ("Segoe UI", 11)
+FONT_CODE = ("Consolas", 12)
+FEEDBACK_BG = "#1e1e1e"
+FEEDBACK_FG = "#d4d4d4"
+
+
+class AppTkinter:
+    def __init__(self, exam_mode: bool = False) -> None:
+        self.modules = get_modules()
+        self.progress = validate_current_pointer(self.modules, load_progress())
+        self.allowed = allowed_modules(self.modules, self.progress)
+
+        # posicion inicial (persistente)
+        cur_mod, cur_les, cur_ex = get_current_position(self.progress)
+        try:
+            mi, li, ei = find_indices(self.modules, cur_mod, cur_les, cur_ex)
+            self.current_module_id = self.modules[mi]["id"]
+            self.current_lesson_index = li
+            self.current_exercise_index = ei
+        except Exception:
+            self.current_module_id = self.modules[0]["id"]
+            self.current_lesson_index = 0
+            self.current_exercise_index = 0
+
+        self.last_result = None
+        self.failed_attempts = 0
+        self.solution_unlocked = False
+        self.mode = "examen" if exam_mode else self.progress.get("current", {}).get("mode", "estudio")
+        self.run_start = time.time()
+
+        self.root = tk.Tk()
+        self.root.title("Python Trainer")
+        self.root.state("zoomed")
+        self.root.minsize(1100, 700)
+        self.root.rowconfigure(1, weight=1)
+        self.root.columnconfigure(0, weight=1)
+        # Atajos de teclado
+        self.root.bind("<Control-Return>", lambda event: self._run_check())
+        self.root.bind("<Control-s>", lambda event: self._save_and_next())
+        self.root.bind("<Control-S>", lambda event: self._save_and_next())
+        self.root.bind("<Control-l>", lambda event: self._clear_console())
+        self.root.bind("<Control-L>", lambda event: self._clear_console())
+
+        self.run_queue: "queue.Queue[dict]" = queue.Queue()
+        self.run_thread: threading.Thread | None = None
+        self.run_active_id = 0
+        self.run_blocked = False
+        self.run_timeout_ms = 2000
+        self.run_timeout_after_id = None
+        self.ignored_run_ids: set[int] = set()
+
+        self._build_header()
+        self._build_body()
+        self._load_current_exercise(reset_code=True)
+        self._poll_run_queue()
+
+    # UI build
+    def _build_header(self) -> None:
+        header = tk.Frame(self.root, padx=16, pady=8)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(4, weight=1)
+
+        self.indicator_var = tk.StringVar(value="")
+        indicator = tk.Label(header, textvariable=self.indicator_var, font=FONT_SUBTITLE)
+        indicator.grid(row=0, column=0, sticky="w", padx=(0, 12))
+
+        tk.Label(header, text="Modulo:", font=FONT_TEXT).grid(row=0, column=1, sticky="e")
+
+        module_names = [f"{m['title']}" for m in self.modules]
+        self.module_var = tk.StringVar(value=module_names[0])
+        self.module_dropdown = ttk.Combobox(header, textvariable=self.module_var, values=module_names, state="readonly")
+        self.module_dropdown.grid(row=0, column=2, sticky="w", padx=8)
+        self.module_dropdown.bind("<<ComboboxSelected>>", self._on_module_selected)
+
+        tk.Label(header, text="Modo:", font=FONT_TEXT).grid(row=0, column=3, sticky="e", padx=(12, 0))
+        self.mode_var = tk.StringVar(value="Examen" if self.mode == "examen" else "Estudio")
+        self.mode_dropdown = ttk.Combobox(header, textvariable=self.mode_var, values=["Estudio", "Examen"], state="readonly")
+        self.mode_dropdown.grid(row=0, column=4, sticky="w", padx=8)
+        self.mode_dropdown.bind("<<ComboboxSelected>>", self._on_mode_changed)
+
+        self.progress_label_var = tk.StringVar(value="")
+        progress_label = tk.Label(header, textvariable=self.progress_label_var, font=FONT_TEXT)
+        progress_label.grid(row=0, column=5, sticky="e")
+
+        self.buffer_state_var = tk.StringVar(value="Estado: Guardado")
+        buffer_label = tk.Label(header, textvariable=self.buffer_state_var, font=("Segoe UI", 10), fg="#666")
+        buffer_label.grid(row=0, column=6, sticky="e", padx=(8, 0))
+
+        self.reset_button = tk.Button(header, text="Reiniciar modulo actual", font=FONT_TEXT, command=self._reset_module_confirm)
+        self.reset_button.grid(row=0, column=7, sticky="e", padx=(8, 0))
+
+        self.reload_button = tk.Button(header, text="Recargar catalogo", font=FONT_TEXT, command=self._reload_catalog)
+        self.reload_button.grid(row=0, column=8, sticky="e", padx=(8, 0))
+
+    def _build_body(self) -> None:
+        body = tk.Frame(self.root, padx=16, pady=8)
+        body.grid(row=1, column=0, sticky="nsew")
+        body.rowconfigure(0, weight=3)
+        body.rowconfigure(1, weight=2)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+
+        # Left column
+        left = tk.Frame(body)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.rowconfigure(5, weight=1)
+        left.columnconfigure(0, weight=1)
+
+        self.lesson_title_var = tk.StringVar(value="")
+        tk.Label(left, textvariable=self.lesson_title_var, font=FONT_TITLE).grid(
+            row=0, column=0, sticky="w", pady=(0, 2)
+        )
+        self.pointer_var = tk.StringVar(value="")
+        tk.Label(left, textvariable=self.pointer_var, font=("Segoe UI", 10), fg="#555").grid(
+            row=0, column=0, sticky="e", pady=(0, 2)
+        )
+
+        self.explanation_label = tk.Label(left, text="Explicacion (lee antes de empezar)", font=FONT_SUBTITLE)
+        self.explanation_label.grid(row=1, column=0, sticky="w")
+        self.explanation_text = tk.Text(left, wrap="word", height=6, font=FONT_TEXT)
+        self.explanation_text.grid(row=2, column=0, sticky="nsew")
+        exp_scroll = tk.Scrollbar(left, command=self.explanation_text.yview)
+        exp_scroll.grid(row=2, column=1, sticky="ns")
+        self.explanation_text.configure(yscrollcommand=exp_scroll.set, state="disabled")
+
+        self.keypoints_label = tk.Label(left, text="Puntos clave", font=FONT_SUBTITLE)
+        self.keypoints_label.grid(row=3, column=0, sticky="w", pady=(6, 0))
+        self.keypoints_text = tk.Text(left, wrap="word", height=4, font=FONT_TEXT)
+        self.keypoints_text.grid(row=4, column=0, sticky="nsew")
+        kp_scroll = tk.Scrollbar(left, command=self.keypoints_text.yview)
+        kp_scroll.grid(row=4, column=1, sticky="ns")
+        self.keypoints_text.configure(yscrollcommand=kp_scroll.set, state="disabled")
+
+        self.example_label = tk.Label(left, text="Ejemplo mini", font=FONT_SUBTITLE)
+        self.example_label.grid(row=5, column=0, sticky="w", pady=(6, 0))
+        self.example_text = tk.Text(left, wrap="word", height=4, font=FONT_CODE)
+        self.example_text.grid(row=6, column=0, sticky="nsew")
+        ex_scroll = tk.Scrollbar(left, command=self.example_text.yview)
+        ex_scroll.grid(row=6, column=1, sticky="ns")
+        self.example_text.configure(yscrollcommand=ex_scroll.set, state="disabled")
+
+        self.statement_label = tk.Label(left, text="Enunciado del ejercicio", font=FONT_SUBTITLE)
+        self.statement_label.grid(row=7, column=0, sticky="w", pady=(6, 0))
+        self.statement_text = tk.Text(left, wrap="word", height=5, font=FONT_TEXT)
+        self.statement_text.grid(row=8, column=0, sticky="nsew")
+        st_scroll = tk.Scrollbar(left, command=self.statement_text.yview)
+        st_scroll.grid(row=8, column=1, sticky="ns")
+        self.statement_text.configure(yscrollcommand=st_scroll.set, state="disabled")
+
+        # Buttons area (hints and actions)
+        hints_frame = tk.Frame(left)
+        hints_frame.grid(row=9, column=0, sticky="ew", pady=(8, 0))
+        hints_frame.columnconfigure((0, 1, 2, 3, 4, 5, 6), weight=1)
+        self.hint_var = tk.StringVar(value="")
+        self.hint_label = tk.Label(hints_frame, textvariable=self.hint_var, font=("Segoe UI", 11), anchor="w", justify="left")
+        self.hint_label.grid(row=1, column=0, columnspan=6, sticky="w", pady=(6, 0))
+
+        self.hint1_btn = tk.Button(hints_frame, text="Pista 1", font=FONT_TEXT, command=self._show_hint1)
+        self.hint1_btn.grid(row=0, column=0, sticky="ew", padx=2)
+        self.hint2_btn = tk.Button(hints_frame, text="Pista 2", font=FONT_TEXT, command=self._show_hint2)
+        self.hint2_btn.grid(row=0, column=1, sticky="ew", padx=2)
+
+        self.solution_button = tk.Button(
+            hints_frame,
+            text="Ver solucion",
+            font=FONT_TEXT,
+            command=self._show_solution,
+            state="disabled",
+        )
+        self.solution_button.grid(row=0, column=2, sticky="ew", padx=2)
+
+        self.check_button = tk.Button(hints_frame, text="Probar", font=FONT_TEXT, command=self._run_check)
+        self.check_button.grid(row=0, column=3, sticky="ew", padx=2)
+        self.exec_button = tk.Button(hints_frame, text="Ejecutar (solo ver salida)", font=FONT_TEXT, command=self._run_execute)
+        self.exec_button.grid(row=0, column=4, sticky="ew", padx=2)
+        tk.Button(hints_frame, text="Guardar y continuar", font=FONT_TEXT, command=self._save_and_next).grid(
+            row=0, column=5, sticky="ew", padx=2
+        )
+
+        self.retry_button = tk.Button(hints_frame, text="Reintentar", font=FONT_TEXT, command=self._retry_output)
+        self.retry_button.grid(row=0, column=6, sticky="ew", padx=2)
+
+        # Right column
+        right = tk.Frame(body)
+        right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        right.rowconfigure(0, weight=1)
+        right.rowconfigure(1, weight=0)
+        right.rowconfigure(2, weight=0)
+        right.columnconfigure(0, weight=1)
+
+        editor_frame = tk.Frame(right)
+        editor_frame.grid(row=0, column=0, sticky="nsew")
+        editor_frame.rowconfigure(0, weight=1)
+        editor_frame.columnconfigure(1, weight=1)
+
+        self.line_numbers = tk.Canvas(editor_frame, width=32, bg="#1e1e1e", highlightthickness=0)
+        self.line_numbers.grid(row=0, column=0, sticky="ns")
+
+        self.code_text = tk.Text(
+            editor_frame,
+            wrap="none",
+            font=FONT_CODE,
+            bg=FEEDBACK_BG,
+            fg=FEEDBACK_FG,
+            insertbackground=FEEDBACK_FG,
+            borderwidth=1,
+            relief="solid",
+            undo=True,
+            autoseparators=True,
+            maxundo=-1,
+        )
+        self.code_text.grid(row=0, column=1, sticky="nsew")
+        self.code_scroll_y = tk.Scrollbar(editor_frame, command=self._on_scrollbar_y)
+        self.code_scroll_y.grid(row=0, column=2, sticky="ns")
+        code_scroll_x = tk.Scrollbar(right, command=self.code_text.xview, orient="horizontal")
+        code_scroll_x.grid(row=1, column=0, sticky="ew")
+        self.code_text.configure(yscrollcommand=self._on_code_scroll, xscrollcommand=code_scroll_x.set)
+        self.code_text.tag_configure("kw", foreground="#569cd6")
+        self.code_text.tag_configure("str", foreground="#d69d85")
+        self.code_text.tag_configure("com", foreground="#6a9955")
+        self.code_text.tag_configure("num", foreground="#b5cea8")
+        self.code_text.tag_configure("err", foreground="#f14c4c", underline=1)
+        self.code_text.tag_configure("par", foreground="#ffd166")
+        self.code_text.tag_configure("lint", foreground="#ff6188", underline=1, background="#51202a")
+        self.code_text.tag_configure("current_line", background="#2a2d2e")
+        self.code_text.tag_configure("search", background="#264f78")
+        self.code_text.bind("<KeyRelease>", self._on_code_keyrelease)
+        self.code_text.bind("<ButtonRelease-1>", self._on_cursor_move)
+        self.code_text.bind("<MouseWheel>", self._on_cursor_move)
+        self.code_text.bind("<Tab>", self._handle_tab)
+        self.code_text.bind("<Shift-Tab>", self._handle_shift_tab)
+        self.code_text.bind("<ISO_Left_Tab>", self._handle_shift_tab)
+        self.code_text.bind("<Control-f>", self._open_find)
+        self.code_text.bind("<Control-F>", self._open_find)
+        self.code_text.bind("<Control-z>", self._undo)
+        self.code_text.bind("<Control-y>", self._redo)
+        self.lint_after_id = None
+        self.live_lint_var = tk.StringVar(value="")
+        self.live_lint_label = tk.Label(
+            right,
+            textvariable=self.live_lint_var,
+            anchor="w",
+            font=("Consolas", 10),
+            fg="#ffd166",
+            bg="#1e1e1e",
+        )
+        self.live_lint_label.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
+        feedback_frame = tk.LabelFrame(body, text="Consola / Feedback", padx=10, pady=8)
+        feedback_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        feedback_frame.columnconfigure(0, weight=1)
+        feedback_frame.rowconfigure(2, weight=0)
+        feedback_frame.rowconfigure(4, weight=1)
+
+        top_bar = tk.Frame(feedback_frame)
+        top_bar.grid(row=0, column=0, sticky="ew")
+        top_bar.columnconfigure(0, weight=1)
+
+        self.status_var = tk.StringVar(value="")
+        self.status_label = tk.Label(top_bar, textvariable=self.status_var, font=("Segoe UI", 14, "bold"))
+        self.status_label.grid(row=0, column=0, sticky="w")
+
+        buttons = tk.Frame(top_bar)
+        buttons.grid(row=0, column=1, sticky="e")
+
+        self.copy_output_btn = tk.Button(buttons, text="Copiar salida", font=FONT_TEXT, command=self._copy_stdout)
+        self.copy_output_btn.grid(row=0, column=0, padx=4)
+        self.clear_console_btn = tk.Button(buttons, text="Limpiar salida", font=FONT_TEXT, command=self._clear_console)
+        self.clear_console_btn.grid(row=0, column=1, padx=4)
+        self.details_btn = tk.Button(buttons, text="Ver detalles", font=FONT_TEXT, command=self._toggle_details, state="disabled")
+        self.details_btn.grid(row=0, column=2, padx=4)
+
+        self.feedback_label = tk.Label(feedback_frame, text="Feedback", font=FONT_SUBTITLE)
+        self.feedback_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.feedback_text = tk.Text(
+            feedback_frame,
+            height=3,
+            wrap="word",
+            font=FONT_TEXT,
+            bg=FEEDBACK_BG,
+            fg=FEEDBACK_FG,
+            insertbackground=FEEDBACK_FG,
+            borderwidth=1,
+            relief="solid",
+        )
+        self.feedback_text.grid(row=2, column=0, sticky="nsew")
+        self.feedback_scroll = tk.Scrollbar(feedback_frame, command=self.feedback_text.yview)
+        self.feedback_scroll.grid(row=2, column=1, sticky="ns")
+        self.feedback_text.configure(yscrollcommand=self.feedback_scroll.set, state="disabled")
+        self.feedback_text.tag_configure("status_ok", foreground="#57a64a")
+        self.feedback_text.tag_configure("status_fail", foreground="#f14c4c")
+        self.feedback_text.tag_configure("status_error", foreground="#f2991f")
+
+        self.stdout_label = tk.Label(feedback_frame, text="Salida (stdout/stderr)", font=FONT_SUBTITLE)
+        self.stdout_label.grid(row=3, column=0, sticky="w", pady=(8, 0))
+        self.stdout_text = tk.Text(
+            feedback_frame,
+            height=6,
+            wrap="none",
+            font=FONT_CODE,
+            bg=FEEDBACK_BG,
+            fg=FEEDBACK_FG,
+            insertbackground=FEEDBACK_FG,
+            borderwidth=1,
+            relief="solid",
+        )
+        self.stdout_text.grid(row=4, column=0, sticky="nsew")
+        self.stdout_scroll = tk.Scrollbar(feedback_frame, command=self.stdout_text.yview)
+        self.stdout_scroll.grid(row=4, column=1, sticky="ns")
+        self.stdout_text.configure(yscrollcommand=self.stdout_scroll.set, state="disabled")
+        self.stdout_text.tag_configure("stdout", foreground=FEEDBACK_FG)
+        self.stdout_text.tag_configure("stderr", foreground="#f14c4c")
+
+        self.details_visible = False
+        self.details_frame = tk.Frame(feedback_frame)
+        self.details_frame.grid(row=5, column=0, sticky="nsew", pady=(8, 0))
+        self.details_frame.columnconfigure(0, weight=1)
+        self.details_label = tk.Label(self.details_frame, text="Detalles (traceback)", font=FONT_SUBTITLE)
+        self.details_label.grid(row=0, column=0, sticky="w")
+        self.details_text = tk.Text(
+            self.details_frame,
+            height=8,
+            wrap="none",
+            font=FONT_CODE,
+            bg=FEEDBACK_BG,
+            fg=FEEDBACK_FG,
+            insertbackground=FEEDBACK_FG,
+            borderwidth=1,
+            relief="solid",
+        )
+        self.details_text.grid(row=1, column=0, sticky="nsew")
+        self.details_scroll = tk.Scrollbar(self.details_frame, command=self.details_text.yview)
+        self.details_scroll.grid(row=1, column=1, sticky="ns")
+        self.details_text.configure(yscrollcommand=self.details_scroll.set, state="disabled")
+        self.details_frame.grid_remove()
+
+        nav_frame = tk.Frame(feedback_frame)
+        nav_frame.grid(row=0, column=2, sticky="ne", padx=(8, 0))
+        self.next_button = tk.Button(nav_frame, text="Siguiente", command=self._go_next, state="disabled", width=12)
+        self.next_button.pack(fill="x", pady=2)
+
+    # Utility methods
+    def _current_exercise(self) -> dict:
+        module = get_module_by_id(self.current_module_id)
+        lesson = module["lessons"][self.current_lesson_index]
+        exercise = lesson["exercises"][self.current_exercise_index]
+        enriched = dict(exercise)
+        enriched["module_id"] = module["id"]
+        enriched["lesson_id"] = lesson["id"]
+        return enriched
+
+    def _load_current_exercise(self, reset_code: bool) -> None:
+        self.progress = validate_current_pointer(self.modules, load_progress())
+        self.allowed = allowed_modules(self.modules, self.progress)
+
+        module = get_module_by_id(self.current_module_id)
+        lesson = module["lessons"][self.current_lesson_index]
+        exercise = lesson["exercises"][self.current_exercise_index]
+
+        total_modules = len(self.modules)
+        module_index = self.modules.index(module) + 1
+        lesson_index = self.current_lesson_index + 1
+        exercise_index = self.current_exercise_index + 1
+        exercise_total = len(lesson["exercises"])
+
+        indicator_text = (
+            f"Modulo {module_index}/{total_modules} - Leccion {lesson_index}/{len(module['lessons'])} - "
+            f"Ejercicio {exercise_index}/{exercise_total}"
+        )
+        self.indicator_var.set(indicator_text)
+        self.progress_label_var.set(f"Progreso guardado en {get_progress_path().parent}")
+
+        # Texto de leccion
+        self.lesson_title_var.set(f"{lesson['title']}")
+        if self.mode == "examen":
+            self.explanation_label.grid_remove()
+            self.explanation_text.grid_remove()
+            self.keypoints_label.grid_remove()
+            self.keypoints_text.grid_remove()
+            self.example_label.grid_remove()
+            self.example_text.grid_remove()
+            self.hint1_btn.configure(state="disabled")
+            self.hint2_btn.configure(state="disabled")
+            self.solution_button.configure(state="disabled")
+            self.statement_label.grid()
+            self.statement_text.grid()
+            self.statement_text.configure(state="normal")
+            self.statement_text.delete("1.0", "end")
+            self.statement_text.insert("1.0", exercise["statement"])
+            self.statement_text.configure(state="disabled")
+            self.statement_text.yview_moveto(0)
+        else:
+            self.explanation_label.grid()
+            self.explanation_text.grid()
+            self.explanation_text.configure(state="normal")
+            self.explanation_text.delete("1.0", "end")
+            self.explanation_text.insert("1.0", "\n".join(lesson.get("explanation", [])))
+            self.explanation_text.configure(state="disabled")
+            self.explanation_text.yview_moveto(0)
+
+            self.keypoints_label.grid()
+            self.keypoints_text.grid()
+            self.keypoints_text.configure(state="normal")
+            self.keypoints_text.delete("1.0", "end")
+            kp_lines = lesson.get("key_points", [])
+            self.keypoints_text.insert("1.0", "\n".join(f"- {k}" for k in kp_lines))
+            self.keypoints_text.configure(state="disabled")
+            self.keypoints_text.yview_moveto(0)
+
+            self.example_label.grid()
+            self.example_text.grid()
+            self.example_text.configure(state="normal")
+            self.example_text.delete("1.0", "end")
+            self.example_text.insert("1.0", exercise["example"])
+            self.example_text.configure(state="disabled")
+            self.example_text.yview_moveto(0)
+
+            self.statement_label.grid()
+            self.statement_text.grid()
+            self.statement_text.configure(state="normal")
+            self.statement_text.delete("1.0", "end")
+            self.statement_text.insert("1.0", exercise["statement"])
+            self.statement_text.configure(state="disabled")
+            self.statement_text.yview_moveto(0)
+            self.hint1_btn.configure(state="normal")
+            self.hint2_btn.configure(state="normal")
+
+        # Codigo
+        if reset_code:
+            record = get_record(self.progress, module["id"], lesson["id"], exercise["id"])
+            starter = record.get("last_code") if record else None
+            self.code_text.delete("1.0", "end")
+            self.code_text.insert("1.0", starter if starter else exercise["starter_code"])
+            self.code_text.yview_moveto(0)
+            self._highlight_code()
+            self.last_saved_code = self.code_text.get("1.0", "end-1c")
+            self._update_dirty_state()
+            self._update_line_numbers()
+            self._highlight_current_line()
+
+        self._reset_feedback_panel()
+
+        # Estado de pistas/solucion
+        self.hint_var.set("")
+        self.failed_attempts = 0
+        self.solution_unlocked = False
+        self._update_solution_button()
+
+        # Pointer mini
+        self.pointer_var.set(f"Modulo: {module['id']} | Leccion: {lesson['id']} | Ejercicio: {exercise['id']}")
+
+        # Etiqueta modo
+        self.mode_var.set("Examen" if self.mode == "examen" else "Estudio")
+
+        # Boton siguiente
+        self._update_next_button()
+
+        self.last_result = None
+        # persistir posicion actual
+        self.progress = set_current_position(self.progress, module["id"], lesson["id"], exercise["id"], self.mode)
+        self._update_module_dropdown_label()
+        self._update_line_numbers()
+        self._highlight_current_line()
+        self._update_dirty_state()
+
+    def _update_solution_button(self) -> None:
+        state = "normal" if self.solution_unlocked else "disabled"
+        if self.mode == "examen":
+            self.solution_button.configure(state="disabled")
+        else:
+            self.solution_button.configure(state=state)
+
+    def _set_text_widget(self, widget: tk.Text, value: str) -> None:
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        widget.insert("1.0", value)
+        widget.configure(state="disabled")
+
+    def _set_output(self, stdout_text: str, stderr_text: str) -> None:
+        self.stdout_text.configure(state="normal")
+        self.stdout_text.delete("1.0", "end")
+        if stdout_text:
+            self.stdout_text.insert("end", stdout_text, "stdout")
+        if stderr_text:
+            if stdout_text:
+                self.stdout_text.insert("end", "\n")
+            self.stdout_text.insert("end", stderr_text, "stderr")
+        self.stdout_text.configure(state="disabled")
+        self.stdout_text.yview_moveto(1.0)
+
+    def _on_code_scroll(self, *args) -> None:
+        self.code_scroll_y.set(*args)
+        self._update_line_numbers()
+
+    def _on_scrollbar_y(self, *args) -> None:
+        self.code_text.yview(*args)
+        self._update_line_numbers()
+
+    def _update_line_numbers(self) -> None:
+        if not hasattr(self, "line_numbers"):
+            return
+        self.line_numbers.delete("all")
+        index = self.code_text.index("@0,0")
+        while True:
+            dline = self.code_text.dlineinfo(index)
+            if dline is None:
+                break
+            y = dline[1]
+            line_num = str(index).split(".")[0]
+            self.line_numbers.create_text(4, y, anchor="nw", text=line_num, fill="#858585", font=("Consolas", 10))
+            index = self.code_text.index(f"{index}+1line")
+        end_line = int(self.code_text.index("end-1c").split(".")[0])
+        digits = max(2, len(str(end_line)))
+        width = 6 + digits * 8
+        if int(self.line_numbers.cget("width")) != width:
+            self.line_numbers.config(width=width)
+
+    def _on_code_keyrelease(self, event=None) -> None:
+        self._highlight_code()
+        self._update_line_numbers()
+        self._highlight_current_line()
+        self._update_dirty_state()
+
+    def _on_cursor_move(self, event=None) -> None:
+        self._highlight_current_line()
+        self._update_line_numbers()
+
+    def _highlight_current_line(self) -> None:
+        self.code_text.tag_remove("current_line", "1.0", "end")
+        line = self.code_text.index("insert").split(".")[0]
+        self.code_text.tag_add("current_line", f"{line}.0", f"{line}.0 lineend+1c")
+
+    def _update_dirty_state(self) -> None:
+        current = self.code_text.get("1.0", "end-1c")
+        if current == getattr(self, "last_saved_code", ""):
+            self.buffer_state_var.set("Estado: Guardado")
+        else:
+            self.buffer_state_var.set("Estado: Sin guardar")
+
+    def _handle_tab(self, event=None):
+        self._indent_selection()
+        return "break"
+
+    def _handle_shift_tab(self, event=None):
+        self._dedent_selection()
+        return "break"
+
+    def _indent_selection(self) -> None:
+        self.code_text.edit_separator()
+        start_line, end_line = self._selection_lines()
+        for line in range(start_line, end_line + 1):
+            self.code_text.insert(f"{line}.0", "    ")
+        self.code_text.edit_separator()
+        self._highlight_code()
+        self._update_line_numbers()
+        self._update_dirty_state()
+
+    def _dedent_selection(self) -> None:
+        self.code_text.edit_separator()
+        start_line, end_line = self._selection_lines()
+        for line in range(start_line, end_line + 1):
+            line_start = f"{line}.0"
+            segment = self.code_text.get(line_start, f"{line}.4")
+            if segment.startswith("    "):
+                self.code_text.delete(line_start, f"{line}.4")
+            elif segment.startswith("\t"):
+                self.code_text.delete(line_start, f"{line}.1")
+            else:
+                spaces = len(segment) - len(segment.lstrip(" "))
+                if spaces:
+                    self.code_text.delete(line_start, f"{line}.{min(spaces, 4)}")
+        self.code_text.edit_separator()
+        self._highlight_code()
+        self._update_line_numbers()
+        self._update_dirty_state()
+
+    def _selection_lines(self) -> tuple[int, int]:
+        try:
+            start = self.code_text.index("sel.first")
+            end = self.code_text.index("sel.last")
+        except tk.TclError:
+            start = self.code_text.index("insert linestart")
+            end = self.code_text.index("insert lineend")
+        start_line = int(start.split(".")[0])
+        end_line = int(end.split(".")[0])
+        if end.endswith(".0") and end_line > start_line:
+            end_line -= 1
+        return start_line, end_line
+
+    def _undo(self, event=None):
+        try:
+            self.code_text.edit_undo()
+        except tk.TclError:
+            return "break"
+        self._update_dirty_state()
+        self._update_line_numbers()
+        return "break"
+
+    def _redo(self, event=None):
+        try:
+            self.code_text.edit_redo()
+        except tk.TclError:
+            return "break"
+        self._update_dirty_state()
+        self._update_line_numbers()
+        return "break"
+
+    def _open_find(self, event=None):
+        if getattr(self, "find_dialog", None) and self.find_dialog.winfo_exists():
+            self.find_dialog.focus()
+            return "break"
+        self.find_dialog = tk.Toplevel(self.root)
+        self.find_dialog.title("Buscar")
+        self.find_dialog.transient(self.root)
+        self.find_dialog.resizable(False, False)
+        tk.Label(self.find_dialog, text="Buscar:").grid(row=0, column=0, padx=8, pady=6, sticky="w")
+        self.find_var = tk.StringVar(value="")
+        entry = tk.Entry(self.find_dialog, textvariable=self.find_var, width=30)
+        entry.grid(row=0, column=1, padx=8, pady=6, sticky="ew")
+        entry.focus()
+        btn_next = tk.Button(self.find_dialog, text="Siguiente", command=self._find_next)
+        btn_prev = tk.Button(self.find_dialog, text="Anterior", command=self._find_prev)
+        btn_close = tk.Button(self.find_dialog, text="Cerrar", command=self.find_dialog.destroy)
+        btn_next.grid(row=1, column=0, padx=8, pady=6)
+        btn_prev.grid(row=1, column=1, padx=8, pady=6, sticky="w")
+        btn_close.grid(row=1, column=1, padx=8, pady=6, sticky="e")
+        self.find_dialog.bind("<Return>", lambda e: self._find_next())
+        return "break"
+
+    def _find_next(self) -> None:
+        needle = self.find_var.get()
+        if not needle:
+            return
+        start = self.code_text.index("insert")
+        idx = self.code_text.search(needle, start, stopindex="end")
+        if not idx:
+            idx = self.code_text.search(needle, "1.0", stopindex="end")
+            if not idx:
+                return
+        end = f"{idx}+{len(needle)}c"
+        self.code_text.tag_remove("search", "1.0", "end")
+        self.code_text.tag_add("search", idx, end)
+        self.code_text.mark_set("insert", end)
+        self.code_text.see(idx)
+        self._highlight_current_line()
+
+    def _find_prev(self) -> None:
+        needle = self.find_var.get()
+        if not needle:
+            return
+        start = self.code_text.index("insert")
+        idx = self.code_text.search(needle, "1.0", stopindex=start, backwards=True)
+        if not idx:
+            idx = self.code_text.search(needle, "end", stopindex="1.0", backwards=True)
+            if not idx:
+                return
+        end = f"{idx}+{len(needle)}c"
+        self.code_text.tag_remove("search", "1.0", "end")
+        self.code_text.tag_add("search", idx, end)
+        self.code_text.mark_set("insert", end)
+        self.code_text.see(idx)
+        self._highlight_current_line()
+
+    def _reset_feedback_panel(self) -> None:
+        self.status_var.set("")
+        self.status_label.configure(fg="#333")
+        self._set_text_widget(self.feedback_text, "")
+        self._set_output("", "")
+        self._set_text_widget(self.details_text, "")
+        self.details_btn.configure(state="disabled", text="Ver detalles")
+        self.details_visible = False
+        self.details_frame.grid_remove()
+        self._clear_code_error_highlight()
+
+        if self.mode == "examen":
+            self.feedback_label.grid_remove()
+            self.feedback_text.grid_remove()
+            self.feedback_scroll.grid_remove()
+            self.details_btn.grid_remove()
+            self.stdout_label.configure(font=FONT_SUBTITLE)
+        else:
+            self.feedback_label.grid()
+            self.feedback_text.grid()
+            self.feedback_scroll.grid()
+            self.details_btn.grid()
+            self.stdout_label.configure(font=FONT_SUBTITLE)
+
+    def _set_status(self, status: str) -> None:
+        if status == "ok":
+            self.status_var.set("✓ CORRECTO")
+            self.status_label.configure(fg="#0b7a35")
+        elif status == "fail":
+            self.status_var.set("✗ INCORRECTO")
+            self.status_label.configure(fg="#b00020")
+        elif status == "error":
+            self.status_var.set("⚠ ERROR")
+            self.status_label.configure(fg="#b26a00")
+        elif status == "run":
+            self.status_var.set("▶ EJECUTADO")
+            self.status_label.configure(fg="#2d89ef")
+        else:
+            self.status_var.set("")
+            self.status_label.configure(fg="#333")
+
+    def _render_feedback(self, result: Dict[str, str]) -> None:
+        status = result.get("status", "error")
+        message = result.get("message", "")
+        stdout = result.get("stdout", "")
+        stderr_text = result.get("stderr", "")
+        details = result.get("details", "")
+        if status == "error" and details and not stderr_text:
+            stderr_text = details
+
+        self._set_status(status)
+        self._clear_code_error_highlight()
+        if status in ("fail", "error"):
+            self.live_lint_var.set(message)
+        else:
+            self.live_lint_var.set("")
+
+        if self.mode == "examen":
+            # Feedback minimo: solo estado + stdout (sin detalles ni pistas)
+            self._set_output(stdout, stderr_text)
+            self.details_btn.configure(state="disabled")
+            self.details_frame.grid_remove()
+            if status in ("error", "fail") and result.get("lineno"):
+                self._highlight_syntax_error(result.get("lineno"), result.get("offset", 1))
+            return
+
+        # Modo estudio
+        self._set_text_widget(self.feedback_text, message)
+        self.feedback_text.yview_moveto(0)
+        self._set_output(stdout, stderr_text)
+
+        if status == "error" and details:
+            self._set_text_widget(self.details_text, details)
+            self.details_btn.configure(state="normal", text="Ver detalles")
+        else:
+            self._set_text_widget(self.details_text, "")
+            self.details_btn.configure(state="disabled", text="Ver detalles")
+            self.details_frame.grid_remove()
+            self.details_visible = False
+        if status in ("error", "fail") and result.get("lineno"):
+            self._highlight_syntax_error(result.get("lineno"), result.get("offset", 1))
+
+    def _set_run_buttons_state(self, state: str) -> None:
+        if hasattr(self, "check_button"):
+            self.check_button.configure(state=state)
+        if hasattr(self, "exec_button"):
+            self.exec_button.configure(state=state)
+
+    def _start_run(self, kind: str) -> None:
+        if self.run_blocked:
+            messagebox.showinfo(
+                "Ejecucion bloqueada",
+                "La ejecucion anterior excedio el tiempo limite. Limpia la salida para desbloquear.",
+            )
+            return
+        if self.run_thread and self.run_thread.is_alive():
+            messagebox.showinfo("Ejecucion en curso", "Espera a que termine la ejecucion actual.")
+            return
+        code = self.code_text.get("1.0", "end-1c")
+        if not code.strip():
+            messagebox.showinfo("Aviso", "Introduce codigo antes de continuar.")
+            return
+        exercise = self._current_exercise()
+        self.run_active_id += 1
+        run_id = self.run_active_id
+        self.run_start = time.time()
+        self._set_run_buttons_state("disabled")
+        self.run_thread = threading.Thread(
+            target=self._run_worker, args=(run_id, kind, code, exercise), daemon=True
+        )
+        self.run_thread.start()
+        if self.run_timeout_after_id:
+            self.root.after_cancel(self.run_timeout_after_id)
+        self.run_timeout_after_id = self.root.after(100, lambda: self._check_run_timeout(run_id))
+
+    def _run_worker(self, run_id: int, kind: str, code: str, exercise: Dict) -> None:
+        try:
+            if kind == "check":
+                result = validate_user_code(code, exercise)
+            else:
+                result = self._execute_code(code, exercise)
+        except Exception as exc:
+            tb = traceback.format_exc()
+            result = {
+                "status": "error",
+                "message": f"RunnerError: {exc}",
+                "stdout": "",
+                "stderr": tb,
+                "details": tb,
+            }
+        self.run_queue.put({"run_id": run_id, "kind": kind, "result": result, "code": code})
+
+    def _execute_code(self, code: str, exercise: Dict) -> Dict[str, str]:
+        try:
+            _check_code_is_safe(code)
+        except ValidationError as exc:
+            return {
+                "status": "error",
+                "message": str(exc),
+                "stdout": "",
+                "stderr": "",
+                "details": "",
+                "lineno": getattr(exc.__cause__, "lineno", 1),
+                "offset": getattr(exc.__cause__, "offset", 1),
+            }
+
+        globals_dict: Dict[str, Any] = {"__builtins__": _safe_builtins()}
+        locals_dict: Dict[str, Any] = {}
+        for key, value in exercise.get("setup", {}).items():
+            locals_dict[key] = value
+
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        try:
+            with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+                exec(code, globals_dict, locals_dict)
+            return {
+                "status": "run",
+                "message": "Ejecucion realizada. No se valido la solucion.",
+                "stdout": stdout_capture.getvalue(),
+                "stderr": stderr_capture.getvalue(),
+                "details": "",
+            }
+        except Exception as exc:
+            tb = traceback.format_exc()
+            msg = f"{type(exc).__name__}: {exc}"
+            return {
+                "status": "error",
+                "message": msg,
+                "stdout": stdout_capture.getvalue(),
+                "stderr": stderr_capture.getvalue() + tb,
+                "details": tb,
+            }
+
+    def _check_run_timeout(self, run_id: int) -> None:
+        if run_id != self.run_active_id:
+            return
+        if self.run_thread and self.run_thread.is_alive():
+            elapsed_ms = (time.time() - self.run_start) * 1000
+            if elapsed_ms >= self.run_timeout_ms:
+                self.run_blocked = True
+                self.ignored_run_ids.add(run_id)
+                self._set_run_buttons_state("disabled")
+                msg = "Tiempo limite de 2s alcanzado. Limpia la salida para desbloquear."
+                self._render_feedback(
+                    {"status": "error", "message": msg, "stdout": "", "stderr": msg + "\n", "details": ""}
+                )
+                return
+            self.run_timeout_after_id = self.root.after(100, lambda: self._check_run_timeout(run_id))
+
+    def _poll_run_queue(self) -> None:
+        try:
+            while True:
+                item = self.run_queue.get_nowait()
+                run_id = item.get("run_id")
+                if run_id != self.run_active_id:
+                    continue
+                if run_id in self.ignored_run_ids:
+                    continue
+                result = item.get("result", {})
+                kind = item.get("kind")
+                code = item.get("code", "")
+                if kind == "check":
+                    status = result.get("status", "error")
+                    self.last_result = {"status": status, "result": result, "code": code}
+                    if status != "ok":
+                        self.failed_attempts += 1
+                        if self.failed_attempts >= 2:
+                            self.solution_unlocked = True
+                    self._update_solution_button()
+                    self._render_feedback(result)
+                else:
+                    self._render_feedback(result)
+                self.run_thread = None
+                if self.run_timeout_after_id:
+                    self.root.after_cancel(self.run_timeout_after_id)
+                    self.run_timeout_after_id = None
+                if not self.run_blocked:
+                    self._set_run_buttons_state("normal")
+        except queue.Empty:
+            pass
+        self.root.after(100, self._poll_run_queue)
+
+    def _toggle_details(self) -> None:
+        if self.mode != "estudio":
+            return
+        if self.details_btn["state"] == "disabled":
+            return
+        if self.details_visible:
+            self.details_frame.grid_remove()
+            self.details_visible = False
+            self.details_btn.configure(text="Ver detalles")
+        else:
+            self.details_frame.grid()
+            self.details_visible = True
+            self.details_btn.configure(text="Ocultar detalles")
+
+    def _copy_stdout(self) -> None:
+        text = self.stdout_text.get("1.0", "end-1c")
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()
+        messagebox.showinfo("Copiado", "Salida copiada al portapapeles.")
+
+    def _clear_console(self) -> None:
+        self._reset_feedback_panel()
+        self.run_blocked = False
+        self.run_thread = None
+        self._set_run_buttons_state("normal")
+
+    def _clear_code_error_highlight(self) -> None:
+        self.code_text.tag_remove("err", "1.0", "end")
+        self.code_text.tag_remove("lint", "1.0", "end")
+
+    def _highlight_syntax_error(self, lineno: int, offset: int) -> None:
+        try:
+            start = f"{lineno}.{max(offset - 1, 0)}"
+            end = f"{lineno}.end"
+            self.code_text.tag_add("err", start, end)
+        except Exception:
+            pass
+
+    def _highlight_lint(self, lineno: int, offset: int) -> None:
+        try:
+            start = f"{lineno}.{max(offset - 1, 0)}"
+            end = f"{lineno}.end"
+            self.code_text.tag_add("lint", start, end)
+        except Exception:
+            pass
+
+    def _run_execute(self) -> None:
+        self._start_run("execute")
+
+    def _highlight_code(self, event=None) -> None:
+        text = self.code_text.get("1.0", "end-1c")
+        self.code_text.tag_remove("kw", "1.0", "end")
+        self.code_text.tag_remove("str", "1.0", "end")
+        self.code_text.tag_remove("com", "1.0", "end")
+        self.code_text.tag_remove("num", "1.0", "end")
+        self._clear_code_error_highlight()
+
+        lines = text.splitlines()
+        kw_set = set(keyword.kwlist)
+        str_re = re.compile(r"(\"[^\"]*\"|'[^']*')")
+        num_re = re.compile(r"\b\d+(?:\.\d+)?\b")
+        par_re = re.compile(r"[\(\)\[\]\{\}]")
+
+        for i, line in enumerate(lines, start=1):
+            # comments
+            if "#" in line:
+                pos = line.find("#")
+                self.code_text.tag_add("com", f"{i}.{pos}", f"{i}.end")
+                line = line[:pos]
+            # strings
+            for m in str_re.finditer(line):
+                self.code_text.tag_add("str", f"{i}.{m.start()}", f"{i}.{m.end()}")
+            # numbers
+            for m in num_re.finditer(line):
+                self.code_text.tag_add("num", f"{i}.{m.start()}", f"{i}.{m.end()}")
+            for m in par_re.finditer(line):
+                self.code_text.tag_add("par", f"{i}.{m.start()}", f"{i}.{m.end()}")
+            # keywords
+            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", line):
+                word = match.group(1)
+                if word in kw_set:
+                    self.code_text.tag_add("kw", f"{i}.{match.start()}", f"{i}.{match.end()}")
+        self._schedule_live_lint()
+
+    def _schedule_live_lint(self) -> None:
+        if self.lint_after_id:
+            self.root.after_cancel(self.lint_after_id)
+        self.lint_after_id = self.root.after(400, self._run_live_lint)
+
+    def _lint_local_whitespace(self, text: str) -> Dict[str, int]:
+        lines = text.splitlines()
+        for idx, line in enumerate(lines, start=1):
+            leading = line[: len(line) - len(line.lstrip("\t "))]
+            if "\t" in leading:
+                col = leading.index("\t") + 1
+                return {"ok": False, "msg": f"Usa espacios en lugar de tabs (linea {idx}).", "lineno": idx, "offset": col}
+            if line.rstrip() != line:
+                return {"ok": False, "msg": f"Quita espacios al final (linea {idx}).", "lineno": idx, "offset": len(line)}
+        return {"ok": True}
+
+    def _run_live_lint(self) -> None:
+        self.lint_after_id = None
+        self.code_text.tag_remove("lint", "1.0", "end")
+        self.live_lint_var.set("")
+        text = self.code_text.get("1.0", "end-1c")
+        if not text.strip():
+            return
+        ws = self._lint_local_whitespace(text)
+        if not ws.get("ok"):
+            self._highlight_lint(ws["lineno"], ws["offset"])
+            self.live_lint_var.set(ws["msg"])
+            return
+        try:
+            ast.parse(text, mode="exec")
+        except SyntaxError as exc:
+            lineno = exc.lineno or 1
+            offset = exc.offset or 1
+            self._highlight_lint(lineno, offset)
+            self.live_lint_var.set(f"Sintaxis: {exc.msg} (linea {lineno})")
+        except Exception:
+            return
+    def _update_next_button(self) -> None:
+        exercise = self._current_exercise()
+        completed = is_exercise_completed(self.progress, exercise["module_id"], exercise["lesson_id"], exercise["id"])
+        self.next_button.configure(state="normal" if completed else "disabled")
+
+    def _update_module_dropdown_label(self) -> None:
+        names = []
+        for m in self.modules:
+            locked = not self.allowed.get(m["id"], False)
+            suffix = " (bloqueado)" if locked and m["id"] != self.current_module_id else ""
+            names.append(f"{m['title']}{suffix}")
+        self.module_dropdown["values"] = names
+        self.module_var.set(names[self.modules.index(get_module_by_id(self.current_module_id))])
+
+    def _on_module_selected(self, event) -> None:
+        selected = self.module_var.get()
+        index = self.module_dropdown["values"].index(selected)
+        chosen = self.modules[index]
+        if not self.allowed.get(chosen["id"], False):
+            messagebox.showinfo("Modulo bloqueado", "Completa el modulo anterior para desbloquear este.")
+            self._update_module_dropdown_label()
+            return
+        self.current_module_id = chosen["id"]
+        self.current_lesson_index = 0
+        self.current_exercise_index = 0
+        self._load_current_exercise(reset_code=True)
+
+    def _on_mode_changed(self, event) -> None:
+        chosen = self.mode_var.get().lower()
+        self.mode = "examen" if chosen == "examen" else "estudio"
+        # deshabilitar elementos en examen
+        self._load_current_exercise(reset_code=False)
+        self._reset_feedback_panel()
+
+    def _reset_module_confirm(self) -> None:
+        module = get_module_by_id(self.current_module_id)
+        if not messagebox.askyesno("Reiniciar modulo", f"Reiniciar el modulo '{module['title']}'? (no afecta a otros modulos)"):
+            return
+        from core.progress import reset_module_progress  # lazy import to avoid cycles
+
+        self.progress = reset_module_progress(self.modules, module["id"], self.progress)
+        self.allowed = allowed_modules(self.modules, self.progress)
+        self.current_lesson_index = 0
+        self.current_exercise_index = 0
+        self._load_current_exercise(reset_code=True)
+        self._reset_feedback_panel()
+
+    def refresh_modules(self) -> None:
+        self.modules = get_modules()
+        self.progress = validate_current_pointer(self.modules, load_progress())
+        self.allowed = allowed_modules(self.modules, self.progress)
+        cur_mod, cur_les, cur_ex = get_current_position(self.progress)
+        try:
+            mi, li, ei = find_indices(self.modules, cur_mod, cur_les, cur_ex)
+            self.current_module_id = self.modules[mi]["id"]
+            self.current_lesson_index = li
+            self.current_exercise_index = ei
+        except Exception:
+            self.current_module_id = self.modules[0]["id"]
+            self.current_lesson_index = 0
+            self.current_exercise_index = 0
+        self._update_module_dropdown_label()
+        self._load_current_exercise(reset_code=True)
+
+    def _reload_catalog(self) -> None:
+        ok = reload_catalog()
+        self.refresh_modules()
+        if ok:
+            messagebox.showinfo("Catalogo", "Catalogo recargado.")
+        else:
+            messagebox.showwarning("Catalogo", "No se pudo cargar catalogo, usando contenido por defecto.")
+
+    def _show_hint1(self) -> None:
+        self.hint_var.set(self._current_exercise()["hints"][0])
+
+    def _show_hint2(self) -> None:
+        self.hint_var.set(self._current_exercise()["hints"][1])
+        self.solution_unlocked = True
+        self._update_solution_button()
+
+    def _show_solution(self) -> None:
+        if self.mode == "examen":
+            messagebox.showinfo("Modo examen", "La solucion no esta disponible en modo examen.")
+            return
+        if not self.solution_unlocked:
+            messagebox.showinfo("Espera", "Primero intenta las pistas o dos intentos antes de ver la solucion.")
+            return
+        messagebox.showinfo("Solucion (usa solo si te atascas)", self._current_exercise()["solution"])
+
+    def _run_check(self) -> None:
+        self._start_run("check")
+
+    def _retry_output(self) -> None:
+        self._clear_console()
+        self.last_result = None
+
+    def _save_and_next(self) -> None:
+        if self.last_result is None:
+            messagebox.showinfo("Aviso", "Primero pulsa Probar.")
+            return
+        res = self.last_result
+        result = res.get("result") or {}
+        status = result.get("status", "error")
+        exercise = self._current_exercise()
+        duration = None
+        if self.run_start:
+            duration = time.time() - self.run_start
+        record_attempt(
+            exercise["module_id"],
+            exercise["lesson_id"],
+            exercise["id"],
+            res["code"],
+            status == "ok",
+            "" if status == "ok" else result.get("message", ""),
+            mode=self.mode,
+            duration_s=duration,
+        )
+        self.last_saved_code = res["code"]
+        self._update_dirty_state()
+        self.progress = validate_current_pointer(self.modules, load_progress())
+        self.allowed = allowed_modules(self.modules, self.progress)
+
+        if status != "ok":
+            messagebox.showinfo("Sigue practicando", "Aun no es correcto. Corrige y vuelve a probar.")
+            return
+
+        self._go_next(auto=True)
+
+    def _go_next(self, auto: bool = False) -> None:
+        # solo avanzar si ejercicio completado
+        exercise = self._current_exercise()
+        completed = is_exercise_completed(self.progress, exercise["module_id"], exercise["lesson_id"], exercise["id"])
+        if not completed:
+            messagebox.showinfo("Pendiente", "Completa el ejercicio antes de avanzar.")
+            return
+
+        nxt = next_position(
+            self.modules, exercise["module_id"], exercise["lesson_id"], exercise["id"]
+        )
+        if nxt is None:
+            messagebox.showinfo("Completado", "Has completado todos los ejercicios disponibles.")
+            self._update_next_button()
+            return
+
+        next_module_id, next_lesson_id, next_ex_id = nxt
+        if next_module_id != self.current_module_id and not self.allowed.get(next_module_id, False):
+            messagebox.showinfo("Modulo bloqueado", "Completa el modulo actual antes de avanzar.")
+            return
+        self.current_module_id = next_module_id
+        # actualizar indices
+        mi, li, ei = find_indices(self.modules, next_module_id, next_lesson_id, next_ex_id)
+        self.current_lesson_index = li
+        self.current_exercise_index = ei
+
+        # si modulo anterior queda completado, recalcular allowed
+        self.progress = set_current_position(self.progress, next_module_id, next_lesson_id, next_ex_id, self.mode)
+        self.progress = validate_current_pointer(self.modules, load_progress())
+        self.allowed = allowed_modules(self.modules, self.progress)
+
+        self._load_current_exercise(reset_code=True)
+        if not auto:
+            messagebox.showinfo("Siguiente", "Pasaste al siguiente ejercicio.")
+
+def run_app(exam_mode: bool = False) -> None:
+    app = AppTkinter(exam_mode=exam_mode)
+    app.root.mainloop()
