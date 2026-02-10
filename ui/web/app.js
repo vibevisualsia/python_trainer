@@ -4,6 +4,8 @@ let monacoRef = null;
 let initDone = false;
 let saveStatusTimer = null;
 let lintStatusTimer = null;
+let latestDiagnostics = [];
+let hoverProviderDisposable = null;
 
 const statusNode = document.getElementById("status");
 const runStatusNode = document.getElementById("run-status");
@@ -45,6 +47,12 @@ function markerSeverity(monaco, severity) {
   return monaco.MarkerSeverity.Warning;
 }
 
+function severityLabelFromRaw(raw) {
+  const value = String(raw || "").toLowerCase();
+  if (value === "error") return "ERROR";
+  return "WARNING";
+}
+
 function normalizeDiagnostics(monaco, diagnostics) {
   return (diagnostics || []).map((item) => ({
     startLineNumber: Math.max(1, Number(item.startLineNumber || 1)),
@@ -52,6 +60,8 @@ function normalizeDiagnostics(monaco, diagnostics) {
     endLineNumber: Math.max(1, Number(item.endLineNumber || item.startLineNumber || 1)),
     endColumn: Math.max(1, Number(item.endColumn || item.startColumn || 2)),
     message: String(item.message || "Issue"),
+    code: String(item.code || "").trim(),
+    severityLabel: severityLabelFromRaw(item.severity),
     source: String(item.source || "tool"),
     severity: markerSeverity(monaco, item.severity),
   }));
@@ -68,18 +78,40 @@ function renderProblems(problems) {
 
   problems.forEach((problem) => {
     const li = document.createElement("li");
-    li.textContent = `${problem.source} L${problem.startLineNumber}: ${problem.message}`;
+    const codeLabel = problem.code ? `[${problem.code}]` : "[NO-CODE]";
+    li.textContent = `[${problem.severityLabel}] ${codeLabel} ${problem.message} (L${problem.startLineNumber}:C${problem.startColumn})`;
     li.addEventListener("click", () => {
       if (!editor) return;
-      editor.setPosition({
+      editor.revealPositionInCenter({
         lineNumber: problem.startLineNumber,
         column: problem.startColumn,
       });
+      editor.setSelection({
+        startLineNumber: problem.startLineNumber,
+        startColumn: problem.startColumn,
+        endLineNumber: problem.endLineNumber,
+        endColumn: problem.endColumn,
+      });
       editor.focus();
-      editor.revealLineInCenter(problem.startLineNumber);
     });
     problemsListNode.appendChild(li);
   });
+}
+
+function applyMarkers(monaco, problems) {
+  latestDiagnostics = problems;
+  const markers = problems.map((problem) => ({
+    startLineNumber: problem.startLineNumber,
+    startColumn: problem.startColumn,
+    endLineNumber: problem.endLineNumber,
+    endColumn: problem.endColumn,
+    severity: problem.severity,
+    message: problem.code ? `[${problem.code}] ${problem.message}` : problem.message,
+    source: problem.source,
+    code: problem.code || undefined,
+  }));
+  monaco.editor.setModelMarkers(editor.getModel(), "pythontrainer", markers);
+  renderProblems(problems);
 }
 
 function getEditorCode() {
@@ -158,12 +190,53 @@ async function runLintDiagnostics(monaco) {
   }
   try {
     const lint = await bridgeApi.lint_code(getEditorCode());
-    const markers = normalizeDiagnostics(monaco, lint.diagnostics || []);
-    monaco.editor.setModelMarkers(editor.getModel(), "pythontrainer", markers);
-    renderProblems(markers);
+    const typecheck = await bridgeApi.typecheck_code(getEditorCode());
+    const merged = [...(lint.diagnostics || []), ...(typecheck.diagnostics || [])];
+    const markers = normalizeDiagnostics(monaco, merged);
+    applyMarkers(monaco, markers);
     lintStatusTimer = setTimeout(() => setStatus("Ready"), 250);
   } catch (error) {
     showRunMessage(`lint error: ${String(error)}`);
+    setStatus("Ready");
+  }
+}
+
+async function applyCodeTransform(methodName, stateText) {
+  if (!bridgeApi || !editor) {
+    showRunMessage("Bridge no disponible. Reinicia la app.");
+    return;
+  }
+  setStatus(stateText);
+  try {
+    const method = bridgeApi[methodName];
+    if (typeof method !== "function") {
+      throw new Error(`Metodo no disponible: ${methodName}`);
+    }
+    const result = await method(getEditorCode());
+    showRunMessage(`${methodName}: ${result.message || ""}`.trim());
+    if (!result || !result.ok) {
+      stderrNode.textContent = result && result.message ? result.message : "Operacion fallida.";
+      setStatus("Ready");
+      return;
+    }
+    if (result.changed && typeof result.code === "string") {
+      const accepted = window.confirm(`${result.message}\n\nQuieres reemplazar el codigo del editor?`);
+      if (accepted) {
+        const previousPosition = editor.getPosition();
+        editor.setValue(result.code);
+        if (previousPosition) {
+          editor.setPosition(previousPosition);
+        }
+      }
+    }
+    if (result.diagnostics && Array.isArray(result.diagnostics)) {
+      applyMarkers(monacoRef, normalizeDiagnostics(monacoRef, result.diagnostics));
+    } else {
+      await runLintDiagnostics(monacoRef);
+    }
+    setTemporaryStatus("Saved", 1000);
+  } catch (error) {
+    showRunMessage(`error: ${String(error)}`);
     setStatus("Ready");
   }
 }
@@ -173,6 +246,8 @@ function initEvents(monaco) {
   document.getElementById("btn-run-exam").addEventListener("click", () => run("exam"));
   document.getElementById("btn-check").addEventListener("click", () => check());
   document.getElementById("btn-save").addEventListener("click", () => saveCode());
+  document.getElementById("btn-format").addEventListener("click", () => applyCodeTransform("format_code", "Formatting"));
+  document.getElementById("btn-fix").addEventListener("click", () => applyCodeTransform("fix_code", "Fixing"));
   const debouncedDiagnostics = debounce(() => runLintDiagnostics(monaco), 500);
   editor.onDidChangeModelContent(() => {
     debouncedDiagnostics();
@@ -267,6 +342,41 @@ function startMonaco() {
       fontSize: 14,
     });
     monaco.editor.setTabFocusMode(false);
+    if (hoverProviderDisposable) {
+      hoverProviderDisposable.dispose();
+    }
+    hoverProviderDisposable = monaco.languages.registerHoverProvider("python", {
+      provideHover: function (model, position) {
+        if (!editor || model !== editor.getModel()) {
+          return null;
+        }
+        const found = latestDiagnostics.find((diag) => {
+          if (position.lineNumber < diag.startLineNumber || position.lineNumber > diag.endLineNumber) {
+            return false;
+          }
+          if (position.lineNumber === diag.startLineNumber && position.column < diag.startColumn) {
+            return false;
+          }
+          if (position.lineNumber === diag.endLineNumber && position.column > diag.endColumn) {
+            return false;
+          }
+          return true;
+        });
+        if (!found) {
+          return null;
+        }
+        const textCode = found.code ? `[${found.code}] ` : "";
+        return {
+          range: {
+            startLineNumber: found.startLineNumber,
+            startColumn: found.startColumn,
+            endLineNumber: found.endLineNumber,
+            endColumn: found.endColumn,
+          },
+          contents: [{ value: `**${found.severityLabel}** ${textCode}${found.message}` }],
+        };
+      },
+    });
 
     initEvents(monacoRef);
     initBridgeAndCode(monacoRef);

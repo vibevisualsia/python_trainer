@@ -54,12 +54,11 @@ def _parse_ruff_output(stdout: str) -> List[Dict[str, Any]]:
         message = str(issue.get("message", "")).strip()
         if not message:
             continue
-        if code:
-            message = f"[{code}] {message}"
         diagnostics.append(
             {
                 "source": "ruff",
-                "severity": "warning",
+                "severity": str(issue.get("severity", "warning")).lower(),
+                "code": code,
                 "message": message,
                 "startLineNumber": _safe_line(location.get("row", 1)),
                 "startColumn": _safe_col(location.get("column", 1)),
@@ -99,6 +98,7 @@ def _parse_pyright_output(stdout: str) -> List[Dict[str, Any]]:
             {
                 "source": "pyright",
                 "severity": severity,
+                "code": str(issue.get("rule", "")).strip(),
                 "message": message,
                 "startLineNumber": _safe_line(start.get("line", 0) + 1),
                 "startColumn": _safe_col(start.get("character", 0) + 1),
@@ -267,6 +267,74 @@ class VscodeApi:
             return {"diagnostics": _parse_pyright_output(completed.stdout or "")}
         except Exception:
             return {"diagnostics": []}
+        finally:
+            try:
+                tmp_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    def format_code(self, code: str) -> Dict[str, Any]:
+        tmp_file = _write_temp_code(code)
+        try:
+            if shutil.which("ruff") is None:
+                return {"ok": False, "message": "ruff no esta disponible.", "code": code}
+            completed = subprocess.run(
+                ["ruff", "format", str(tmp_file)],
+                capture_output=True,
+                text=True,
+                timeout=10.0,
+            )
+            if completed.returncode != 0:
+                return {
+                    "ok": False,
+                    "message": (completed.stderr or completed.stdout or "No se pudo formatear.").strip(),
+                    "code": code,
+                }
+            new_code = tmp_file.read_text(encoding="utf-8")
+            changed = new_code != code
+            return {
+                "ok": True,
+                "changed": changed,
+                "code": new_code,
+                "message": "Codigo formateado." if changed else "No habia cambios de formato.",
+            }
+        except Exception as exc:
+            return {"ok": False, "message": str(exc), "code": code}
+        finally:
+            try:
+                tmp_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    def fix_code(self, code: str) -> Dict[str, Any]:
+        tmp_file = _write_temp_code(code)
+        try:
+            if shutil.which("ruff") is None:
+                return {"ok": False, "message": "ruff no esta disponible.", "code": code, "diagnostics": []}
+            completed = subprocess.run(
+                ["ruff", "check", "--fix", "--exit-zero", "--output-format", "json", str(tmp_file)],
+                capture_output=True,
+                text=True,
+                timeout=12.0,
+            )
+            new_code = tmp_file.read_text(encoding="utf-8")
+            changed = new_code != code
+            diagnostics = _parse_ruff_output(completed.stdout or "")
+            fixed_count = max(0, len(diagnostics))
+            if changed:
+                message = "Se aplicaron correcciones automaticas de Ruff."
+            else:
+                message = "No hubo correcciones automaticas aplicables."
+            return {
+                "ok": True,
+                "changed": changed,
+                "code": new_code,
+                "message": message,
+                "diagnostics": diagnostics,
+                "remaining": fixed_count,
+            }
+        except Exception as exc:
+            return {"ok": False, "message": str(exc), "code": code, "diagnostics": []}
         finally:
             try:
                 tmp_file.unlink(missing_ok=True)

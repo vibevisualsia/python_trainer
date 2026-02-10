@@ -18,7 +18,8 @@ def test_parse_ruff_output_json():
     assert len(diagnostics) == 1
     assert diagnostics[0]["source"] == "ruff"
     assert diagnostics[0]["startLineNumber"] == 2
-    assert "F821" in diagnostics[0]["message"]
+    assert diagnostics[0]["code"] == "F821"
+    assert diagnostics[0]["message"] == "Undefined name `x`"
 
 
 def test_parse_pyright_output_json():

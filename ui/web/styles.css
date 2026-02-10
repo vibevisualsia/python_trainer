@@ -86,6 +86,8 @@ body {
   background: #1f1f1f;
   border: 1px solid #333;
   font-size: 12px;
+  line-height: 1.35;
+  font-family: Consolas, monospace;
 }
 
 #problems-list li:hover {
