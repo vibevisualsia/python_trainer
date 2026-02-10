@@ -90,20 +90,32 @@ function updateOutput(result) {
   }
 }
 
-async function run(mode) {
+async function executeAction(methodName, mode) {
   if (!bridgeApi || !editor) {
     showRunMessage("Bridge no disponible. Reinicia la app.");
     return;
   }
-  setStatus(`Running (${mode})...`);
+  setStatus(`${methodName} (${mode})...`);
   try {
-    const result = await bridgeApi.run_code(getEditorCode(), mode);
+    const runnerMethod = bridgeApi[methodName];
+    if (typeof runnerMethod !== "function") {
+      throw new Error(`Metodo no disponible: ${methodName}`);
+    }
+    const result = await runnerMethod(getEditorCode(), mode);
     updateOutput(result || {});
   } catch (error) {
     showRunMessage(`error: ${String(error)}`);
     stderrNode.textContent = String(error);
   }
   setStatus("Ready");
+}
+
+async function run(mode) {
+  await executeAction("run_code", mode);
+}
+
+async function check() {
+  await executeAction("check_code", "study");
 }
 
 async function saveCode() {
@@ -144,6 +156,7 @@ async function runLintDiagnostics(monaco) {
 function initEvents(monaco) {
   document.getElementById("btn-run").addEventListener("click", () => run("study"));
   document.getElementById("btn-run-exam").addEventListener("click", () => run("exam"));
+  document.getElementById("btn-check").addEventListener("click", () => check());
   document.getElementById("btn-save").addEventListener("click", () => saveCode());
   const debouncedDiagnostics = debounce(() => runLintDiagnostics(monaco), 500);
   editor.onDidChangeModelContent(() => {
