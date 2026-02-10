@@ -1,4 +1,5 @@
 import logging
+import sys
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 
@@ -285,11 +286,18 @@ MODULES: List[Dict] = [
 ]
 
 
+def _catalog_path() -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base_path = Path(sys._MEIPASS)
+    else:
+        base_path = Path(__file__).resolve().parent.parent
+    return base_path / "data" / "catalog.json"
+
+
 def _get_catalog_modules() -> Optional[List[Dict]]:
     global _CACHED_CATALOG
     if _CACHED_CATALOG is None:
-        catalog_path = Path(__file__).resolve().parent.parent / "data" / "catalog.json"
-        _CACHED_CATALOG = load_catalog(catalog_path)
+        _CACHED_CATALOG = load_catalog(_catalog_path())
     if not _CACHED_CATALOG:
         return None
     return _CACHED_CATALOG.get("modules")
@@ -305,8 +313,7 @@ def get_modules() -> List[Dict]:
 def reload_catalog() -> bool:
     global _CACHED_CATALOG
     _CACHED_CATALOG = None
-    catalog_path = Path(__file__).resolve().parent.parent / "data" / "catalog.json"
-    _CACHED_CATALOG = load_catalog(catalog_path)
+    _CACHED_CATALOG = load_catalog(_catalog_path())
     if _CACHED_CATALOG:
         logger.info("Catalogo recargado OK")
         return True
