@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Python Trainer IDE</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+</head>
+<body>
+  <div id="topbar">
+    <button id="btn-run">Run</button>
+    <button id="btn-run-exam">Run Exam</button>
+    <button id="btn-save">Save</button>
+    <span id="status">Ready</span>
+  </div>
+
+  <div id="main">
+    <div id="editor"></div>
+    <div id="problems-panel">
+      <h3>Problems</h3>
+      <ul id="problems-list"></ul>
+    </div>
+  </div>
+
+  <div id="output-panel">
+    <h3>Output</h3>
+    <pre id="run-status"></pre>
+    <pre id="stdout"></pre>
+    <h3>Errors</h3>
+    <pre id="stderr"></pre>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
