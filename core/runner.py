@@ -1,6 +1,7 @@
 import ast
 import getpass
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -69,6 +70,12 @@ def _build_script(code: str, setup: Optional[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _python_cmd() -> str:
+    if getattr(sys, "frozen", False):
+        return shutil.which("python") or shutil.which("py") or "python"
+    return sys.executable
+
+
 def _build_preexec_limiter(max_memory_mb: int, max_cpu_s: int) -> Optional[Callable[[], None]]:
     if os.name == "nt" or resource is None:
         return None
@@ -132,7 +139,7 @@ def run_user_code(
 
     try:
         completed = subprocess.run(
-            [sys.executable, "-c", script],
+            [_python_cmd(), "-c", script],
             **run_kwargs,
         )
     except subprocess.TimeoutExpired as exc:
