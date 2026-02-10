@@ -93,3 +93,13 @@ def test_run_code_does_not_validate_but_check_code_does(monkeypatch):
     check_result = api.check_code("print(123)", mode="study")
     assert check_result["status"] == "fail"
     assert validate_calls["count"] == 1
+
+
+def test_fix_code_returns_expected_shape_when_ruff_missing(monkeypatch):
+    api = VscodeApi()
+    monkeypatch.setattr("ui.vscode_app.shutil.which", lambda _name: None)
+    result = api.fix_code("print(1)\n")
+    assert result["changed"] is False
+    assert result["code_new"] == "print(1)\n"
+    assert "summary" in result
+    assert isinstance(result["summary"], dict)

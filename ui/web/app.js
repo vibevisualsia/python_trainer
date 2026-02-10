@@ -6,12 +6,18 @@ let saveStatusTimer = null;
 let lintStatusTimer = null;
 let latestDiagnostics = [];
 let hoverProviderDisposable = null;
+let pendingFixPayload = null;
 
 const statusNode = document.getElementById("status");
 const runStatusNode = document.getElementById("run-status");
 const stdoutNode = document.getElementById("stdout");
 const stderrNode = document.getElementById("stderr");
 const problemsListNode = document.getElementById("problems-list");
+const fixModalNode = document.getElementById("fix-preview-modal");
+const fixSummaryNode = document.getElementById("fix-summary");
+const fixDiffNode = document.getElementById("fix-diff");
+const fixApplyButton = document.getElementById("btn-fix-apply");
+const fixCancelButton = document.getElementById("btn-fix-cancel");
 
 function setStatus(text) {
   statusNode.textContent = text;
@@ -78,7 +84,7 @@ function renderProblems(problems) {
 
   problems.forEach((problem) => {
     const li = document.createElement("li");
-    const codeLabel = problem.code ? `[${problem.code}]` : "[NO-CODE]";
+    const codeLabel = `[${problem.code || "--"}]`;
     li.textContent = `[${problem.severityLabel}] ${codeLabel} ${problem.message} (L${problem.startLineNumber}:C${problem.startColumn})`;
     li.addEventListener("click", () => {
       if (!editor) return;
@@ -96,6 +102,76 @@ function renderProblems(problems) {
     });
     problemsListNode.appendChild(li);
   });
+}
+
+function buildDiffPreview(beforeCode, afterCode, maxLines = 30) {
+  if (beforeCode === afterCode) {
+    return "No hay cambios en el codigo.";
+  }
+  const before = (beforeCode || "").split("\n");
+  const after = (afterCode || "").split("\n");
+  const total = Math.max(before.length, after.length);
+  const preview = [];
+  let idx = 0;
+  while (idx < total && preview.length < maxLines) {
+    const left = before[idx];
+    const right = after[idx];
+    if (left !== right) {
+      if (left !== undefined) {
+        preview.push(`- ${left}`);
+      }
+      if (right !== undefined) {
+        preview.push(`+ ${right}`);
+      }
+    }
+    idx += 1;
+  }
+  if (!preview.length) {
+    return "No hay cambios en el codigo.";
+  }
+  if (idx < total) {
+    preview.push(`... (preview recortado, primeras ${maxLines} lineas cambiadas)`);
+  }
+  return preview.join("\n");
+}
+
+function closeFixPreview() {
+  if (!fixModalNode) return;
+  fixModalNode.classList.add("hidden");
+  pendingFixPayload = null;
+}
+
+function openFixPreview(payload) {
+  if (!fixModalNode || !fixSummaryNode || !fixDiffNode) {
+    return false;
+  }
+  pendingFixPayload = payload;
+  const summary = payload.summary || {};
+  const rules = Array.isArray(summary.rules) ? summary.rules : [];
+  const lines = [
+    summary.text || "Preview de fix.",
+    `Cambios: ${summary.changes || 0}`,
+    `Reglas: ${rules.length ? rules.join(", ") : "sin detalle"}`,
+  ];
+  fixSummaryNode.textContent = lines.join("\n");
+  fixDiffNode.textContent = buildDiffPreview(payload.code_before || "", payload.code_new || "");
+  fixModalNode.classList.remove("hidden");
+  return true;
+}
+
+async function applyPendingFix() {
+  if (!pendingFixPayload || !editor) {
+    closeFixPreview();
+    return;
+  }
+  const previousPosition = editor.getPosition();
+  editor.setValue(pendingFixPayload.code_new || getEditorCode());
+  if (previousPosition) {
+    editor.setPosition(previousPosition);
+  }
+  closeFixPreview();
+  await runLintDiagnostics(monacoRef);
+  setTemporaryStatus("Saved", 1000);
 }
 
 function applyMarkers(monaco, problems) {
@@ -212,21 +288,40 @@ async function applyCodeTransform(methodName, stateText) {
     if (typeof method !== "function") {
       throw new Error(`Metodo no disponible: ${methodName}`);
     }
-    const result = await method(getEditorCode());
-    showRunMessage(`${methodName}: ${result.message || ""}`.trim());
+    const currentCode = getEditorCode();
+    const result = await method(currentCode);
+    const summaryText = result && result.summary && result.summary.text ? result.summary.text : result.message || "";
+    showRunMessage(`${methodName}: ${summaryText}`.trim());
     if (!result || !result.ok) {
-      stderrNode.textContent = result && result.message ? result.message : "Operacion fallida.";
+      const failText = summaryText || "Operacion fallida.";
+      stderrNode.textContent = failText;
       setStatus("Ready");
       return;
     }
-    if (result.changed && typeof result.code === "string") {
-      const accepted = window.confirm(`${result.message}\n\nQuieres reemplazar el codigo del editor?`);
-      if (accepted) {
-        const previousPosition = editor.getPosition();
-        editor.setValue(result.code);
-        if (previousPosition) {
-          editor.setPosition(previousPosition);
+    if (methodName === "fix_code") {
+      if (result.changed && typeof result.code_new === "string") {
+        const opened = openFixPreview({
+          code_before: currentCode,
+          code_new: result.code_new,
+          summary: result.summary || {},
+        });
+        if (!opened) {
+          const accepted = window.confirm(`${summaryText}\n\nQuieres reemplazar el codigo del editor?`);
+          if (accepted) {
+            editor.setValue(result.code_new);
+            await runLintDiagnostics(monacoRef);
+          }
         }
+      } else {
+        setStatus("Ready");
+      }
+      return;
+    }
+    if (result.changed && typeof result.code === "string") {
+      const previousPosition = editor.getPosition();
+      editor.setValue(result.code);
+      if (previousPosition) {
+        editor.setPosition(previousPosition);
       }
     }
     if (result.diagnostics && Array.isArray(result.diagnostics)) {
@@ -248,6 +343,25 @@ function initEvents(monaco) {
   document.getElementById("btn-save").addEventListener("click", () => saveCode());
   document.getElementById("btn-format").addEventListener("click", () => applyCodeTransform("format_code", "Formatting"));
   document.getElementById("btn-fix").addEventListener("click", () => applyCodeTransform("fix_code", "Fixing"));
+  if (fixApplyButton) {
+    fixApplyButton.addEventListener("click", () => {
+      applyPendingFix();
+    });
+  }
+  if (fixCancelButton) {
+    fixCancelButton.addEventListener("click", () => {
+      closeFixPreview();
+      setStatus("Ready");
+    });
+  }
+  if (fixModalNode) {
+    fixModalNode.addEventListener("click", (event) => {
+      if (event.target === fixModalNode) {
+        closeFixPreview();
+        setStatus("Ready");
+      }
+    });
+  }
   const debouncedDiagnostics = debounce(() => runLintDiagnostics(monaco), 500);
   editor.onDidChangeModelContent(() => {
     debouncedDiagnostics();

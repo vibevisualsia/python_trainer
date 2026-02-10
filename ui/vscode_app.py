@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import shutil
 import subprocess
@@ -113,6 +114,30 @@ def _write_temp_code(code: str) -> Path:
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as handle:
         handle.write(code)
         return Path(handle.name)
+
+
+def _unique_rule_codes(issues: List[Dict[str, Any]]) -> List[str]:
+    seen = set()
+    ordered: List[str] = []
+    for issue in issues:
+        code = str(issue.get("code", "")).strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        ordered.append(code)
+    return ordered
+
+
+def _changed_lines_count(before_code: str, after_code: str) -> int:
+    before_lines = before_code.splitlines()
+    after_lines = after_code.splitlines()
+    sequence = difflib.SequenceMatcher(a=before_lines, b=after_lines)
+    changed = 0
+    for tag, i1, i2, j1, j2 in sequence.get_opcodes():
+        if tag == "equal":
+            continue
+        changed += max(i2 - i1, j2 - j1)
+    return changed
 
 
 class VscodeApi:
@@ -310,31 +335,67 @@ class VscodeApi:
         tmp_file = _write_temp_code(code)
         try:
             if shutil.which("ruff") is None:
-                return {"ok": False, "message": "ruff no esta disponible.", "code": code, "diagnostics": []}
+                return {
+                    "ok": False,
+                    "changed": False,
+                    "code_new": code,
+                    "summary": {
+                        "text": "ruff no esta disponible.",
+                        "changes": 0,
+                        "rules": [],
+                    },
+                }
+
+            before_check = subprocess.run(
+                ["ruff", "check", "--output-format", "json", str(tmp_file)],
+                capture_output=True,
+                text=True,
+                timeout=10.0,
+            )
+            before_diagnostics = _parse_ruff_output(before_check.stdout or "")
+
             completed = subprocess.run(
                 ["ruff", "check", "--fix", "--exit-zero", "--output-format", "json", str(tmp_file)],
                 capture_output=True,
                 text=True,
                 timeout=12.0,
             )
-            new_code = tmp_file.read_text(encoding="utf-8")
-            changed = new_code != code
-            diagnostics = _parse_ruff_output(completed.stdout or "")
-            fixed_count = max(0, len(diagnostics))
-            if changed:
-                message = "Se aplicaron correcciones automaticas de Ruff."
+            after_diagnostics = _parse_ruff_output(completed.stdout or "")
+            code_new = tmp_file.read_text(encoding="utf-8")
+            changed = code_new != code
+
+            rules_before = _unique_rule_codes(before_diagnostics)
+            rules_after = set(_unique_rule_codes(after_diagnostics))
+            applied_rules = [rule for rule in rules_before if rule not in rules_after]
+            changes_count = _changed_lines_count(code, code_new)
+
+            if changed and applied_rules:
+                summary_text = f"Se aplicaron {changes_count} cambio(s) en {len(applied_rules)} regla(s)."
+            elif changed:
+                summary_text = f"Se aplicaron {changes_count} cambio(s) automaticos."
             else:
-                message = "No hubo correcciones automaticas aplicables."
+                summary_text = "No hubo correcciones automaticas aplicables."
             return {
                 "ok": True,
                 "changed": changed,
-                "code": new_code,
-                "message": message,
-                "diagnostics": diagnostics,
-                "remaining": fixed_count,
+                "code_new": code_new,
+                "summary": {
+                    "text": summary_text,
+                    "changes": changes_count,
+                    "rules": applied_rules,
+                },
             }
         except Exception as exc:
-            return {"ok": False, "message": str(exc), "code": code, "diagnostics": []}
+            return {
+                "ok": False,
+                "changed": False,
+                "code_new": code,
+                "summary": {
+                    "text": str(exc),
+                    "changes": 0,
+                    "rules": [],
+                },
+            }
         finally:
             try:
                 tmp_file.unlink(missing_ok=True)
