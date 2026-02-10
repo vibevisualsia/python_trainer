@@ -3,6 +3,7 @@ let bridgeApi = null;
 let monacoRef = null;
 let initDone = false;
 let saveStatusTimer = null;
+let lintStatusTimer = null;
 
 const statusNode = document.getElementById("status");
 const runStatusNode = document.getElementById("run-status");
@@ -12,6 +13,14 @@ const problemsListNode = document.getElementById("problems-list");
 
 function setStatus(text) {
   statusNode.textContent = text;
+}
+
+function setTemporaryStatus(text, ms = 1200) {
+  setStatus(text);
+  if (saveStatusTimer) {
+    clearTimeout(saveStatusTimer);
+  }
+  saveStatusTimer = setTimeout(() => setStatus("Ready"), ms);
 }
 
 function showRunMessage(text) {
@@ -95,7 +104,11 @@ async function executeAction(methodName, mode) {
     showRunMessage("Bridge no disponible. Reinicia la app.");
     return;
   }
-  setStatus(`${methodName} (${mode})...`);
+  if (methodName === "check_code") {
+    setStatus("Checking");
+  } else {
+    setStatus("Running");
+  }
   try {
     const runnerMethod = bridgeApi[methodName];
     if (typeof runnerMethod !== "function") {
@@ -123,33 +136,35 @@ async function saveCode() {
     showRunMessage("Bridge no disponible. No se pudo guardar.");
     return;
   }
-  setStatus("Saving...");
+  setStatus("Running");
   try {
     const response = await bridgeApi.save_code(getEditorCode());
     if (response && response.ok) {
-      setStatus("Saved");
-      if (saveStatusTimer) {
-        clearTimeout(saveStatusTimer);
-      }
-      saveStatusTimer = setTimeout(() => setStatus("Ready"), 1200);
+      setTemporaryStatus("Saved");
     } else {
-      setStatus("Save failed");
+      setStatus("Ready");
     }
   } catch (error) {
-    setStatus("Save failed");
+    setStatus("Ready");
     stderrNode.textContent = String(error);
   }
 }
 
 async function runLintDiagnostics(monaco) {
   if (!bridgeApi || !editor) return;
+  setStatus("Linting");
+  if (lintStatusTimer) {
+    clearTimeout(lintStatusTimer);
+  }
   try {
     const lint = await bridgeApi.lint_code(getEditorCode());
     const markers = normalizeDiagnostics(monaco, lint.diagnostics || []);
     monaco.editor.setModelMarkers(editor.getModel(), "pythontrainer", markers);
     renderProblems(markers);
+    lintStatusTimer = setTimeout(() => setStatus("Ready"), 250);
   } catch (error) {
     showRunMessage(`lint error: ${String(error)}`);
+    setStatus("Ready");
   }
 }
 
@@ -160,11 +175,19 @@ function initEvents(monaco) {
   document.getElementById("btn-save").addEventListener("click", () => saveCode());
   const debouncedDiagnostics = debounce(() => runLintDiagnostics(monaco), 500);
   editor.onDidChangeModelContent(() => {
-    setStatus("Unsaved changes");
     debouncedDiagnostics();
   });
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     saveCode();
+  });
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+    run("study");
+  });
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
+    check();
+  });
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.Enter, () => {
+    run("exam");
   });
 }
 
@@ -233,9 +256,17 @@ function startMonaco() {
       suggestOnTriggerCharacters: true,
       wordBasedSuggestions: "currentDocument",
       tabCompletion: "on",
-      minimap: { enabled: false },
+      minimap: { enabled: true },
+      smoothScrolling: true,
+      cursorBlinking: "blink",
+      bracketPairColorization: { enabled: true },
+      autoClosingBrackets: "always",
+      autoClosingQuotes: "always",
+      formatOnPaste: true,
+      acceptSuggestionOnEnter: "on",
       fontSize: 14,
     });
+    monaco.editor.setTabFocusMode(false);
 
     initEvents(monacoRef);
     initBridgeAndCode(monacoRef);

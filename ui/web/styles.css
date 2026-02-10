@@ -41,7 +41,13 @@ body {
 #status {
   margin-left: auto;
   color: #9cdcfe;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border: 1px solid #3a3d41;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: #1f2937;
 }
 
 #main {
