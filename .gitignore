@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 *.pyd
 .venv/
+.venv312/
 .vscode/
 .pytest_cache/
 dist/

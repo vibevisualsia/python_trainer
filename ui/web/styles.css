@@ -1,0 +1,127 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: "Segoe UI", sans-serif;
+}
+
+body {
+  display: grid;
+  grid-template-rows: 48px 1fr 230px;
+}
+
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #303030;
+  background: #252526;
+}
+
+#topbar button {
+  background: #0e639c;
+  color: white;
+  border: 0;
+  border-radius: 4px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+#topbar button:hover {
+  background: #1177bb;
+}
+
+#status {
+  margin-left: auto;
+  color: #9cdcfe;
+  font-size: 13px;
+}
+
+#main {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 330px;
+}
+
+#editor {
+  min-height: 0;
+}
+
+#problems-panel {
+  border-left: 1px solid #303030;
+  background: #252526;
+  padding: 10px;
+  overflow: auto;
+}
+
+#problems-panel h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+#problems-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#problems-list li {
+  cursor: pointer;
+  padding: 7px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  background: #1f1f1f;
+  border: 1px solid #333;
+  font-size: 12px;
+}
+
+#problems-list li:hover {
+  border-color: #0e639c;
+}
+
+#output-panel {
+  border-top: 1px solid #303030;
+  background: #1b1b1b;
+  padding: 10px;
+  overflow: auto;
+}
+
+#output-panel h3 {
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+#run-status,
+#stdout,
+#stderr {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 4px;
+  margin: 4px 0 10px;
+  padding: 8px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+#run-status {
+  color: #9cdcfe;
+  min-height: 28px;
+}
+
+#stdout {
+  color: #ce9178;
+  min-height: 70px;
+}
+
+#stderr {
+  color: #f48771;
+  min-height: 70px;
+}

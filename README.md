@@ -85,3 +85,35 @@ Formato minimo:
   ]
 }
 ```
+
+## Modo VSCode-like (MVP)
+
+Instala dependencias del modo editor web:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+Lanza el modo VSCode-like (pywebview + Monaco):
+
+```bash
+python -m ui.vscode_app
+```
+
+Incluye:
+
+- Monaco Editor en tema oscuro
+- Botones Run y Run Exam
+- Panel Output (stdout/stderr)
+- Panel Problems con markers de Monaco
+- Lint con `ruff` y typecheck con `pyright` (si estan instalados)
+
+### Requisitos y ejecucion recomendada (Windows)
+
+- Requisito recomendado para VSCode UI: Python 3.12.
+- Instalacion:
+  - `python -m pip install -r requirements-dev.txt`
+- Ejecucion:
+  - `python -m ui.vscode_app`
+- Nota:
+  - Si usas Python 3.14 para el curso, crea un venv con 3.12 para este modo.
