@@ -106,14 +106,18 @@ Incluye:
 - Botones Run y Run Exam
 - Panel Output (stdout/stderr)
 - Panel Problems con markers de Monaco
+- Diagnosticos de sintaxis siempre (aunque falten herramientas externas)
 - Lint con `ruff` y typecheck con `pyright` (si estan instalados)
+- Autocompletado y hover usando `pyright-langserver` local
 
 ### Requisitos y ejecucion recomendada (Windows)
 
 - Requisito recomendado para VSCode UI: Python 3.12.
 - Instalacion:
   - `python -m pip install -r requirements-dev.txt`
+  - `python -m pip install ruff pyright pywebview`
 - Ejecucion:
   - `python -m ui.vscode_app`
 - Nota:
   - Si usas Python 3.14 para el curso, crea un venv con 3.12 para este modo.
+  - El backend intenta ejecutar `ruff` con `python -m ruff` para no depender de PATH.

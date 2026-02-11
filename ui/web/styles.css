@@ -13,7 +13,7 @@ body {
 
 body {
   display: grid;
-  grid-template-rows: 48px 1fr 230px;
+  grid-template-rows: 48px minmax(0, 1fr);
 }
 
 #topbar {
@@ -50,6 +50,17 @@ body {
   background: #1f2937;
 }
 
+#workspace {
+  min-height: 0;
+  --bottom-pane-height: 30%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 8px minmax(120px, var(--bottom-pane-height));
+}
+
+#top-pane {
+  min-height: 0;
+}
+
 #main {
   min-height: 0;
   display: grid;
@@ -58,6 +69,17 @@ body {
 
 #editor {
   min-height: 0;
+}
+
+#bottom-resizer {
+  background: #2a2a2a;
+  border-top: 1px solid #303030;
+  border-bottom: 1px solid #303030;
+  cursor: row-resize;
+}
+
+#bottom-resizer:hover {
+  background: #3a3a3a;
 }
 
 #problems-panel {
@@ -94,16 +116,55 @@ body {
   border-color: #0e639c;
 }
 
-#output-panel {
+#bottom-pane {
   border-top: 1px solid #303030;
   background: #1b1b1b;
-  padding: 10px;
-  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-#output-panel h3 {
-  margin: 4px 0;
-  font-size: 14px;
+#bottom-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #303030;
+}
+
+.tab-btn {
+  background: transparent;
+  color: #c5c5c5;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tab-btn:hover {
+  border-color: #0e639c;
+}
+
+.tab-btn.active {
+  color: #fff;
+  border-color: #0e639c;
+  background: #1f2937;
+}
+
+#bottom-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 8px 10px;
+}
+
+.tab-view {
+  display: none;
+}
+
+.tab-view.active {
+  display: block;
 }
 
 #run-status,
@@ -117,6 +178,7 @@ body {
   font-family: Consolas, monospace;
   font-size: 12px;
   white-space: pre-wrap;
+  overflow: visible;
 }
 
 #run-status {

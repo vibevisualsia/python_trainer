@@ -97,7 +97,10 @@ def test_run_code_does_not_validate_but_check_code_does(monkeypatch):
 
 def test_fix_code_returns_expected_shape_when_ruff_missing(monkeypatch):
     api = VscodeApi()
-    monkeypatch.setattr("ui.vscode_app.shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "ui.vscode_app._available_map",
+        lambda: {"ruff": False, "pyright": False, "pyright_langserver": False},
+    )
     result = api.fix_code("print(1)\n")
     assert result["ok"] is False
     assert result["changed"] is False
@@ -110,19 +113,34 @@ def test_fix_code_returns_expected_shape_when_ruff_missing(monkeypatch):
 
 def test_api_capabilities_shape_when_tools_missing(monkeypatch):
     api = VscodeApi()
-    monkeypatch.setattr("ui.vscode_app.shutil.which", lambda _name: None)
+    monkeypatch.setattr("ui.vscode_app._tool_available", lambda _name: False)
     capabilities = api.api_capabilities()
     assert capabilities["ok"] is True
-    assert set(capabilities["available"].keys()) == {"ruff", "pyright"}
+    assert set(capabilities["available"].keys()) == {"ruff", "pyright", "pyright_langserver"}
     assert capabilities["available"]["ruff"] is False
     assert capabilities["available"]["pyright"] is False
-    assert set(capabilities["versions"].keys()) == {"ruff", "pyright"}
+    assert capabilities["available"]["pyright_langserver"] is False
+    assert set(capabilities["versions"].keys()) == {"ruff", "pyright", "pyright_langserver"}
 
 
 def test_format_code_returns_error_when_ruff_missing(monkeypatch):
     api = VscodeApi()
-    monkeypatch.setattr("ui.vscode_app.shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "ui.vscode_app._available_map",
+        lambda: {"ruff": False, "pyright": False, "pyright_langserver": False},
+    )
     result = api.format_code("print(1)\n")
     assert result["ok"] is False
     assert "ruff" in result["message"].lower()
     assert result["available"]["ruff"] is False
+
+
+def test_syntax_check_reports_python_error():
+    api = VscodeApi()
+    result = api.syntax_check("if True print('x')\n")
+    assert result["ok"] is False
+    assert result["diagnostics"]
+    diag = result["diagnostics"][0]
+    assert diag["code"] == "SYNTAX"
+    assert diag["severity"] == "error"
+    assert diag["startLineNumber"] >= 1

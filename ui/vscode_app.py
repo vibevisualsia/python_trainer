@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import ast
 import difflib
 import json
+import queue
 import shutil
 import subprocess
+import sys
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 try:
     import webview  # type: ignore
@@ -20,20 +24,97 @@ from core.runner import run_user_code
 from core.validator import validate_user_code
 
 
+def _run_command(command: List[str], timeout: float = 3.0) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _run_ruff_command(args: List[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    last_error: Optional[Exception] = None
+    commands = [
+        [sys.executable, "-m", "ruff", *args],
+        ["ruff", *args],
+    ]
+    for command in commands:
+        try:
+            return _run_command(command, timeout=timeout)
+        except FileNotFoundError as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
+    raise FileNotFoundError("ruff no instalado")
+
+
+def _run_pyright_command(args: List[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    last_error: Optional[Exception] = None
+    commands = [
+        [sys.executable, "-m", "pyright", *args],
+        ["pyright", *args],
+    ]
+    for command in commands:
+        try:
+            return _run_command(command, timeout=timeout)
+        except FileNotFoundError as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
+    raise FileNotFoundError("pyright no instalado")
+
+
+def _pyright_langserver_command() -> Optional[List[str]]:
+    commands = [
+        [sys.executable, "-m", "pyright.langserver", "--stdio"],
+        ["pyright-langserver", "--stdio"],
+    ]
+    for command in commands:
+        try:
+            completed = _run_command([*command[:3], "--help"] if command[0] == sys.executable else [command[0], "--help"], timeout=2.0)
+            if completed.returncode in {0, 1, 2}:
+                return command
+        except Exception:
+            continue
+    return None
+
+
 def _tool_available(tool_name: str) -> bool:
+    if tool_name == "ruff":
+        try:
+            completed = _run_ruff_command(["--version"], timeout=2.0)
+            return completed.returncode == 0
+        except Exception:
+            return False
+    if tool_name == "pyright":
+        try:
+            completed = _run_pyright_command(["--version"], timeout=2.0)
+            return completed.returncode == 0
+        except Exception:
+            return False
+    if tool_name == "pyright-langserver":
+        return _pyright_langserver_command() is not None
     return shutil.which(tool_name) is not None
 
 
 def _tool_version(tool_name: str) -> str:
-    if not _tool_available(tool_name):
-        return ""
     try:
-        completed = subprocess.run(
-            [tool_name, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-        )
+        if tool_name == "ruff":
+            completed = _run_ruff_command(["--version"], timeout=2.0)
+        elif tool_name == "pyright":
+            completed = _run_pyright_command(["--version"], timeout=2.0)
+        elif tool_name == "pyright-langserver":
+            command = _pyright_langserver_command()
+            if not command:
+                return ""
+            completed = _run_command([command[0], "--version"] if len(command) == 2 else [sys.executable, "-m", "pyright", "--version"], timeout=2.0)
+        else:
+            if not _tool_available(tool_name):
+                return ""
+            completed = _run_command([tool_name, "--version"], timeout=2.0)
     except Exception:
         return ""
     version_text = (completed.stdout or completed.stderr or "").strip()
@@ -44,6 +125,7 @@ def _available_map() -> Dict[str, bool]:
     return {
         "ruff": _tool_available("ruff"),
         "pyright": _tool_available("pyright"),
+        "pyright_langserver": _tool_available("pyright-langserver"),
     }
 
 
@@ -167,10 +249,237 @@ def _changed_lines_count(before_code: str, after_code: str) -> int:
     return changed
 
 
+def _lsp_markdown_to_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("value", "")).strip()
+    if isinstance(value, list):
+        return "\n".join(_lsp_markdown_to_text(item) for item in value if item)
+    return str(value or "")
+
+
+def _map_lsp_completion_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    label = str(item.get("label", "")).strip()
+    if not label:
+        return {}
+    documentation = _lsp_markdown_to_text(item.get("documentation"))
+    insert_text = str(item.get("insertText", "")).strip() or label
+    return {
+        "label": label,
+        "kind": int(item.get("kind", 1) or 1),
+        "detail": str(item.get("detail", "")).strip(),
+        "documentation": documentation,
+        "insertText": insert_text,
+    }
+
+
+class _PyrightLspClient:
+    def __init__(self) -> None:
+        self._process: Optional[subprocess.Popen[bytes]] = None
+        self._reader_thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._pending: Dict[int, queue.Queue[Dict[str, Any]]] = {}
+        self._next_id = 1
+        self._document_opened = False
+        self._document_version = 0
+        self._document_uri = (Path(__file__).resolve().parent.parent / "lsp_buffer.py").as_uri()
+
+    def _ensure_started(self) -> bool:
+        if self._process and self._process.poll() is None:
+            return True
+
+        command = _pyright_langserver_command()
+        if not command:
+            return False
+        try:
+            self._process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except Exception:
+            self._process = None
+            return False
+
+        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader_thread.start()
+        try:
+            self._request(
+                "initialize",
+                {
+                    "processId": None,
+                    "rootUri": Path(__file__).resolve().parent.parent.as_uri(),
+                    "capabilities": {},
+                },
+                timeout=5.0,
+            )
+            self._notify("initialized", {})
+            return True
+        except Exception:
+            self.shutdown()
+            return False
+
+    def _reader_loop(self) -> None:
+        process = self._process
+        if not process or not process.stdout:
+            return
+        stream = process.stdout
+        while True:
+            headers: Dict[str, str] = {}
+            while True:
+                line = stream.readline()
+                if not line:
+                    self._flush_pending_with_error("Pyright LSP finalizado.")
+                    return
+                if line in {b"\r\n", b"\n"}:
+                    break
+                header_line = line.decode("utf-8", errors="replace").strip()
+                if ":" in header_line:
+                    key, value = header_line.split(":", 1)
+                    headers[key.strip().lower()] = value.strip()
+            content_length = int(headers.get("content-length", "0") or "0")
+            if content_length <= 0:
+                continue
+            body = stream.read(content_length)
+            if not body:
+                self._flush_pending_with_error("Sin respuesta de Pyright LSP.")
+                return
+            try:
+                payload = json.loads(body.decode("utf-8", errors="replace"))
+            except Exception:
+                continue
+            if isinstance(payload, dict) and "id" in payload:
+                request_id = int(payload["id"])
+                with self._lock:
+                    waiter = self._pending.pop(request_id, None)
+                if waiter:
+                    waiter.put(payload)
+
+    def _send(self, payload: Dict[str, Any]) -> None:
+        process = self._process
+        if not process or not process.stdin:
+            raise RuntimeError("Pyright LSP no disponible.")
+        body = json.dumps(payload).encode("utf-8")
+        header = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+        process.stdin.write(header + body)
+        process.stdin.flush()
+
+    def _request(self, method: str, params: Dict[str, Any], timeout: float = 4.0) -> Dict[str, Any]:
+        if not self._ensure_started():
+            raise RuntimeError("No se pudo iniciar pyright-langserver.")
+        with self._lock:
+            request_id = self._next_id
+            self._next_id += 1
+            waiter: queue.Queue[Dict[str, Any]] = queue.Queue(maxsize=1)
+            self._pending[request_id] = waiter
+        self._send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
+        try:
+            response = waiter.get(timeout=timeout)
+        except Exception as exc:
+            with self._lock:
+                self._pending.pop(request_id, None)
+            raise RuntimeError(f"Timeout LSP en {method}") from exc
+        if "error" in response:
+            error_payload = response.get("error", {})
+            raise RuntimeError(str(error_payload.get("message", "Error de pyright-langserver.")))
+        return response
+
+    def _notify(self, method: str, params: Dict[str, Any]) -> None:
+        if not self._ensure_started():
+            raise RuntimeError("No se pudo iniciar pyright-langserver.")
+        self._send({"jsonrpc": "2.0", "method": method, "params": params})
+
+    def _sync_document(self, code: str) -> None:
+        self._document_version += 1
+        if not self._document_opened:
+            self._notify(
+                "textDocument/didOpen",
+                {
+                    "textDocument": {
+                        "uri": self._document_uri,
+                        "languageId": "python",
+                        "version": self._document_version,
+                        "text": code,
+                    }
+                },
+            )
+            self._document_opened = True
+            return
+        self._notify(
+            "textDocument/didChange",
+            {
+                "textDocument": {"uri": self._document_uri, "version": self._document_version},
+                "contentChanges": [{"text": code}],
+            },
+        )
+
+    def complete(self, code: str, line: int, column: int) -> Dict[str, Any]:
+        self._sync_document(code)
+        response = self._request(
+            "textDocument/completion",
+            {
+                "textDocument": {"uri": self._document_uri},
+                "position": {"line": max(0, line - 1), "character": max(0, column - 1)},
+            },
+        )
+        result = response.get("result", [])
+        items = result.get("items", []) if isinstance(result, dict) else result
+        parsed_items: List[Dict[str, Any]] = []
+        if isinstance(items, list):
+            for item in items[:100]:
+                if isinstance(item, dict):
+                    mapped = _map_lsp_completion_item(item)
+                    if mapped:
+                        parsed_items.append(mapped)
+        return {"ok": True, "items": parsed_items}
+
+    def hover(self, code: str, line: int, column: int) -> Dict[str, Any]:
+        self._sync_document(code)
+        response = self._request(
+            "textDocument/hover",
+            {
+                "textDocument": {"uri": self._document_uri},
+                "position": {"line": max(0, line - 1), "character": max(0, column - 1)},
+            },
+        )
+        result = response.get("result") or {}
+        contents = _lsp_markdown_to_text(result.get("contents", ""))
+        if not contents:
+            return {"ok": True, "contents": ""}
+        return {"ok": True, "contents": contents}
+
+    def _flush_pending_with_error(self, message: str) -> None:
+        with self._lock:
+            pending = list(self._pending.values())
+            self._pending.clear()
+        for waiter in pending:
+            waiter.put({"error": {"message": message}})
+
+    def shutdown(self) -> None:
+        process = self._process
+        if not process:
+            return
+        try:
+            if process.poll() is None:
+                process.terminate()
+        except Exception:
+            pass
+        self._process = None
+        self._document_opened = False
+
+
 class VscodeApi:
+    def __init__(self) -> None:
+        self._lsp_client = _PyrightLspClient()
+
     def _current_position(self) -> tuple[str, str, str]:
         progress = load_progress()
         return get_current_position(progress)
+
+    def close(self) -> None:
+        self._lsp_client.shutdown()
 
     def _current_exercise(self) -> Dict[str, Any]:
         module_id, lesson_id, exercise_id = self._current_position()
@@ -290,12 +599,58 @@ class VscodeApi:
         versions = {
             "ruff": _tool_version("ruff") if available["ruff"] else "",
             "pyright": _tool_version("pyright") if available["pyright"] else "",
+            "pyright_langserver": _tool_version("pyright-langserver") if available["pyright_langserver"] else "",
         }
         return {
             "ok": True,
             "available": available,
             "versions": versions,
         }
+
+    def syntax_check(self, code: str) -> Dict[str, Any]:
+        try:
+            ast.parse(code)
+            return {"ok": True, "diagnostics": [], "message": "", "available": _available_map()}
+        except SyntaxError as exc:
+            line = max(1, int(exc.lineno or 1))
+            col = max(1, int(exc.offset or 1))
+            end_col = max(col + 1, col + 1)
+            diagnostics = [
+                {
+                    "source": "python",
+                    "severity": "error",
+                    "code": "SYNTAX",
+                    "message": str(exc.msg or "Syntax error"),
+                    "startLineNumber": line,
+                    "startColumn": col,
+                    "endLineNumber": line,
+                    "endColumn": end_col,
+                }
+            ]
+            return {
+                "ok": False,
+                "diagnostics": diagnostics,
+                "message": str(exc.msg or "Syntax error"),
+                "available": _available_map(),
+            }
+        except Exception as exc:
+            return {"ok": False, "diagnostics": [], "message": str(exc), "available": _available_map()}
+
+    def lsp_complete(self, code: str, line: int, column: int) -> Dict[str, Any]:
+        try:
+            result = self._lsp_client.complete(code, line, column)
+            result["available"] = _available_map()
+            return result
+        except Exception as exc:
+            return {"ok": False, "items": [], "message": str(exc), "available": _available_map()}
+
+    def lsp_hover(self, code: str, line: int, column: int) -> Dict[str, Any]:
+        try:
+            result = self._lsp_client.hover(code, line, column)
+            result["available"] = _available_map()
+            return result
+        except Exception as exc:
+            return {"ok": False, "contents": "", "message": str(exc), "available": _available_map()}
 
     def lint_code(self, code: str) -> Dict[str, Any]:
         available = _available_map()
@@ -309,12 +664,7 @@ class VscodeApi:
 
         tmp_file = _write_temp_code(code)
         try:
-            completed = subprocess.run(
-                ["ruff", "check", "--output-format", "json", str(tmp_file)],
-                capture_output=True,
-                text=True,
-                timeout=8.0,
-            )
+            completed = _run_ruff_command(["check", "--output-format", "json", str(tmp_file)], timeout=8.0)
             diagnostics = _parse_ruff_output(completed.stdout or "")
             return {
                 "ok": True,
@@ -362,12 +712,7 @@ class VscodeApi:
 
         tmp_file = _write_temp_code(code)
         try:
-            completed = subprocess.run(
-                ["pyright", "--outputjson", str(tmp_file)],
-                capture_output=True,
-                text=True,
-                timeout=10.0,
-            )
+            completed = _run_pyright_command(["--outputjson", str(tmp_file)], timeout=10.0)
             diagnostics = _parse_pyright_output(completed.stdout or "")
             return {
                 "ok": True,
@@ -416,12 +761,7 @@ class VscodeApi:
 
         tmp_file = _write_temp_code(code)
         try:
-            completed = subprocess.run(
-                ["ruff", "format", str(tmp_file)],
-                capture_output=True,
-                text=True,
-                timeout=10.0,
-            )
+            completed = _run_ruff_command(["format", str(tmp_file)], timeout=10.0)
             if completed.returncode != 0:
                 return {
                     "ok": False,
@@ -490,18 +830,11 @@ class VscodeApi:
 
         tmp_file = _write_temp_code(code)
         try:
-            before_check = subprocess.run(
-                ["ruff", "check", "--output-format", "json", str(tmp_file)],
-                capture_output=True,
-                text=True,
-                timeout=10.0,
-            )
+            before_check = _run_ruff_command(["check", "--output-format", "json", str(tmp_file)], timeout=10.0)
             before_diagnostics = _parse_ruff_output(before_check.stdout or "")
 
-            completed = subprocess.run(
-                ["ruff", "check", "--fix", "--exit-zero", "--output-format", "json", str(tmp_file)],
-                capture_output=True,
-                text=True,
+            completed = _run_ruff_command(
+                ["check", "--fix", "--exit-zero", "--output-format", "json", str(tmp_file)],
                 timeout=12.0,
             )
             after_diagnostics = _parse_ruff_output(completed.stdout or "")
@@ -598,7 +931,10 @@ def run_app() -> None:
         height=900,
         min_size=(1000, 700),
     )
-    webview.start(debug=False)
+    try:
+        webview.start(debug=False)
+    finally:
+        api.close()
 
 
 if __name__ == "__main__":

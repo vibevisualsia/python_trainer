@@ -1,3 +1,5 @@
+console.log("APPJS_LOADED");
+
 let editor = null;
 let bridgeApi = null;
 let monacoRef = null;
@@ -8,15 +10,26 @@ let latestDiagnostics = [];
 let hoverProviderDisposable = null;
 let pendingFixPayload = null;
 let toolbarBound = false;
+let hotkeysBound = false;
+let bindRetryTimer = null;
+let bindRetryStartedAt = 0;
 let apiCapabilities = {
   available: { ruff: true, pyright: true },
   versions: { ruff: "", pyright: "" },
 };
+const TOOLBAR_BUTTON_IDS = ["btn-run", "btn-run-exam", "btn-check", "btn-format", "btn-fix", "btn-save"];
 
 const statusNode = document.getElementById("status");
 const runStatusNode = document.getElementById("run-status");
 const stdoutNode = document.getElementById("stdout");
 const stderrNode = document.getElementById("stderr");
+const workspaceNode = document.getElementById("workspace");
+const bottomResizerNode = document.getElementById("bottom-resizer");
+const bottomScrollNode = document.getElementById("bottom-scroll");
+const tabOutputNode = document.getElementById("tab-output");
+const tabErrorsNode = document.getElementById("tab-errors");
+const viewOutputNode = document.getElementById("view-output");
+const viewErrorsNode = document.getElementById("view-errors");
 const problemsListNode = document.getElementById("problems-list");
 const formatButtonNode = document.getElementById("btn-format");
 const fixButtonNode = document.getElementById("btn-fix");
@@ -42,10 +55,46 @@ function showRunMessage(text) {
   runStatusNode.textContent = text || "";
 }
 
+function activateBottomTab(tabName) {
+  const showErrors = tabName === "errors";
+  if (tabOutputNode) tabOutputNode.classList.toggle("active", !showErrors);
+  if (tabErrorsNode) tabErrorsNode.classList.toggle("active", showErrors);
+  if (viewOutputNode) viewOutputNode.classList.toggle("active", !showErrors);
+  if (viewErrorsNode) viewErrorsNode.classList.toggle("active", showErrors);
+}
+
+function scrollBottomToEnd() {
+  if (!bottomScrollNode) return;
+  bottomScrollNode.scrollTop = bottomScrollNode.scrollHeight;
+}
+
+function appendErrorPanel(message) {
+  const previous = stderrNode.textContent ? `${stderrNode.textContent}\n` : "";
+  stderrNode.textContent = `${previous}${message}`;
+  activateBottomTab("errors");
+  scrollBottomToEnd();
+}
+
+function reportError(context, error) {
+  const raw = error && error.stack ? error.stack : String(error || "Error desconocido.");
+  const text = `${context}: ${raw}`;
+  console.error(text);
+  showRunMessage(`error: ${context}`);
+  appendErrorPanel(text);
+}
+
+window.onerror = function (message, source, lineno, colno, error) {
+  const file = source || "unknown";
+  const line = lineno || 0;
+  const col = colno || 0;
+  const errorMessage = `${message} (${file}:${line}:${col})`;
+  reportError("window.onerror", error || errorMessage);
+  return false;
+};
+
 window.addEventListener("error", (event) => {
   const msg = event && event.message ? event.message : "Error JavaScript no identificado.";
-  showRunMessage(`js error: ${msg}`);
-  stderrNode.textContent = `${msg}\n${(event && event.filename) || ""}:${(event && event.lineno) || ""}`;
+  reportError("window.error", `${msg} ${(event && event.filename) || ""}:${(event && event.lineno) || ""}`);
 });
 
 function toCamelCase(value) {
@@ -112,7 +161,8 @@ async function loadCapabilities() {
   try {
     const payload = await capabilitiesMethod();
     mergeCapabilities(payload || {});
-  } catch (_error) {
+  } catch (error) {
+    reportError("loadCapabilities", error);
   }
   applyCapabilitiesUI();
 }
@@ -133,6 +183,29 @@ function markerSeverity(monaco, severity) {
   if (value === "info") return monaco.MarkerSeverity.Info;
   if (value === "hint") return monaco.MarkerSeverity.Hint;
   return monaco.MarkerSeverity.Warning;
+}
+
+function completionKind(monaco, kindNumber) {
+  const numeric = Number(kindNumber || 1);
+  const map = {
+    1: monaco.languages.CompletionItemKind.Text,
+    2: monaco.languages.CompletionItemKind.Method,
+    3: monaco.languages.CompletionItemKind.Function,
+    4: monaco.languages.CompletionItemKind.Constructor,
+    5: monaco.languages.CompletionItemKind.Field,
+    6: monaco.languages.CompletionItemKind.Variable,
+    7: monaco.languages.CompletionItemKind.Class,
+    8: monaco.languages.CompletionItemKind.Interface,
+    9: monaco.languages.CompletionItemKind.Module,
+    10: monaco.languages.CompletionItemKind.Property,
+    14: monaco.languages.CompletionItemKind.Keyword,
+    15: monaco.languages.CompletionItemKind.Snippet,
+    17: monaco.languages.CompletionItemKind.File,
+    18: monaco.languages.CompletionItemKind.Reference,
+    19: monaco.languages.CompletionItemKind.Folder,
+    21: monaco.languages.CompletionItemKind.Constant,
+  };
+  return map[numeric] || monaco.languages.CompletionItemKind.Text;
 }
 
 function severityLabelFromRaw(raw) {
@@ -287,6 +360,12 @@ function updateOutput(result) {
   if (result.warnings && result.warnings.length) {
     runStatusNode.textContent += `\nWarnings:\n- ${result.warnings.join("\n- ")}`;
   }
+  if (result.stderr && String(result.stderr).trim()) {
+    activateBottomTab("errors");
+  } else {
+    activateBottomTab("output");
+  }
+  scrollBottomToEnd();
 }
 
 async function executeAction(methodName, mode) {
@@ -313,8 +392,7 @@ async function executeAction(methodName, mode) {
     const result = await runnerMethod(getEditorCode(), mode);
     updateOutput(result || {});
   } catch (error) {
-    showRunMessage(`error: ${String(error)}`);
-    stderrNode.textContent = String(error);
+    reportError(`executeAction(${methodName})`, error);
   }
   setStatus("Ready");
 }
@@ -325,6 +403,18 @@ async function run(mode) {
 
 async function check() {
   await executeAction("check_code", "study");
+}
+
+async function runExam() {
+  await run("exam");
+}
+
+async function formatCode() {
+  await applyCodeTransform("format_code", "Formatting");
+}
+
+async function fixCode() {
+  await applyCodeTransform("fix_code", "Fixing");
 }
 
 async function saveCode() {
@@ -351,7 +441,7 @@ async function saveCode() {
     }
   } catch (error) {
     setStatus("Ready");
-    stderrNode.textContent = String(error);
+    reportError("saveCode", error);
   }
 }
 
@@ -364,12 +454,12 @@ async function runLintDiagnostics(monaco) {
     clearTimeout(lintStatusTimer);
   }
   try {
+    const syntaxMethod = resolveApiMethod("syntax_check");
+    const syntax = syntaxMethod ? await syntaxMethod(getEditorCode()) : { diagnostics: [] };
+    const syntaxDiagnostics = Array.isArray(syntax && syntax.diagnostics) ? syntax.diagnostics : [];
+
     const lintMethod = resolveApiMethod("lint_code");
-    if (!lintMethod) {
-      setStatus("Ready");
-      return;
-    }
-    const lint = await lintMethod(getEditorCode());
+    const lint = lintMethod ? await lintMethod(getEditorCode()) : { diagnostics: [] };
     if (lint && lint.available) {
       mergeCapabilities({ available: lint.available });
       applyCapabilitiesUI();
@@ -387,12 +477,12 @@ async function runLintDiagnostics(monaco) {
         typeDiagnostics = Array.isArray(typecheck && typecheck.diagnostics) ? typecheck.diagnostics : [];
       }
     }
-    const merged = [...lintDiagnostics, ...typeDiagnostics];
+    const merged = [...syntaxDiagnostics, ...lintDiagnostics, ...typeDiagnostics];
     const markers = normalizeDiagnostics(monaco, merged);
     applyMarkers(monaco, markers);
     lintStatusTimer = setTimeout(() => setStatus("Ready"), 250);
   } catch (error) {
-    showRunMessage(`lint error: ${String(error)}`);
+    reportError("runLintDiagnostics", error);
     setStatus("Ready");
   }
 }
@@ -456,26 +546,144 @@ async function applyCodeTransform(methodName, stateText) {
     }
     setTemporaryStatus("Saved", 1000);
   } catch (error) {
-    showRunMessage(`error: ${String(error)}`);
+    reportError(`applyCodeTransform(${methodName})`, error);
     setStatus("Ready");
   }
 }
 
 function bindToolbarButtons() {
-  if (toolbarBound) return;
-  const runBtn = document.getElementById("btn-run");
-  const runExamBtn = document.getElementById("btn-run-exam");
-  const checkBtn = document.getElementById("btn-check");
-  const saveBtn = document.getElementById("btn-save");
-  const formatBtn = document.getElementById("btn-format");
-  const fixBtn = document.getElementById("btn-fix");
-  if (runBtn) runBtn.addEventListener("click", () => run("study"));
-  if (runExamBtn) runExamBtn.addEventListener("click", () => run("exam"));
-  if (checkBtn) checkBtn.addEventListener("click", () => check());
-  if (saveBtn) saveBtn.addEventListener("click", () => saveCode());
-  if (formatBtn) formatBtn.addEventListener("click", () => applyCodeTransform("format_code", "Formatting"));
-  if (fixBtn) fixBtn.addEventListener("click", () => applyCodeTransform("fix_code", "Fixing"));
+  if (toolbarBound) return true;
+  const elements = {};
+  const missing = [];
+  for (const id of TOOLBAR_BUTTON_IDS) {
+    const element = document.getElementById(id);
+    elements[id] = element;
+    if (!element) {
+      missing.push(id);
+      console.error("MISSING_BUTTON", id);
+    }
+  }
+  if (missing.length > 0) {
+    if (!bindRetryTimer) {
+      bindRetryStartedAt = Date.now();
+      bindRetryTimer = window.setInterval(() => {
+        const elapsed = Date.now() - bindRetryStartedAt;
+        if (toolbarBound || elapsed >= 5000) {
+          clearInterval(bindRetryTimer);
+          bindRetryTimer = null;
+          if (!toolbarBound) {
+            reportError("bindToolbarButtons", `No se encontraron botones: ${missing.join(", ")}`);
+          }
+          return;
+        }
+        bindToolbarButtons();
+      }, 250);
+    }
+    return false;
+  }
+  elements["btn-run"].addEventListener("click", () => {
+    console.log("CLICK", "btn-run");
+    run("study");
+  });
+  elements["btn-run-exam"].addEventListener("click", () => {
+    console.log("CLICK", "btn-run-exam");
+    runExam();
+  });
+  elements["btn-check"].addEventListener("click", () => {
+    console.log("CLICK", "btn-check");
+    check();
+  });
+  elements["btn-format"].addEventListener("click", () => {
+    console.log("CLICK", "btn-format");
+    formatCode();
+  });
+  elements["btn-fix"].addEventListener("click", () => {
+    console.log("CLICK", "btn-fix");
+    fixCode();
+  });
+  elements["btn-save"].addEventListener("click", () => {
+    console.log("CLICK", "btn-save");
+    saveCode();
+  });
   toolbarBound = true;
+  if (bindRetryTimer) {
+    clearInterval(bindRetryTimer);
+    bindRetryTimer = null;
+  }
+  return true;
+}
+
+function registerGlobalHotkeys() {
+  if (hotkeysBound) return;
+  window.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey) return;
+    if (event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      console.log("HOTKEY", "save");
+      saveCode();
+      return;
+    }
+    if (event.key === "Enter" && event.shiftKey) {
+      event.preventDefault();
+      console.log("HOTKEY", "check");
+      check();
+      return;
+    }
+    if (event.key === "Enter" && event.altKey) {
+      event.preventDefault();
+      console.log("HOTKEY", "runExam");
+      runExam();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      console.log("HOTKEY", "run");
+      run("study");
+    }
+  });
+  hotkeysBound = true;
+}
+
+function initBottomTabs() {
+  activateBottomTab("output");
+  if (tabOutputNode) {
+    tabOutputNode.addEventListener("click", () => {
+      activateBottomTab("output");
+    });
+  }
+  if (tabErrorsNode) {
+    tabErrorsNode.addEventListener("click", () => {
+      activateBottomTab("errors");
+    });
+  }
+}
+
+function initVerticalSplitter() {
+  if (!workspaceNode || !bottomResizerNode) return;
+  let dragging = false;
+
+  const onMouseMove = (event) => {
+    if (!dragging) return;
+    const rect = workspaceNode.getBoundingClientRect();
+    const rawBottom = rect.bottom - event.clientY;
+    const maxBottom = Math.max(120, rect.height - 120);
+    const clamped = Math.max(120, Math.min(maxBottom, rawBottom));
+    workspaceNode.style.setProperty("--bottom-pane-height", `${clamped}px`);
+  };
+
+  const onMouseUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    window.removeEventListener("mousemove", onMouseMove);
+    window.removeEventListener("mouseup", onMouseUp);
+  };
+
+  bottomResizerNode.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    dragging = true;
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  });
 }
 
 function initEvents(monaco) {
@@ -502,18 +710,6 @@ function initEvents(monaco) {
   const debouncedDiagnostics = debounce(() => runLintDiagnostics(monaco), 500);
   editor.onDidChangeModelContent(() => {
     debouncedDiagnostics();
-  });
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-    saveCode();
-  });
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
-    run("study");
-  });
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
-    check();
-  });
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.Enter, () => {
-    run("exam");
   });
 }
 
@@ -544,7 +740,7 @@ async function initBridgeAndCode(monaco) {
   try {
     initialCode = await bridgeApi.load_initial_code();
   } catch (error) {
-    stderrNode.textContent = String(error);
+    reportError("initBridgeAndCode.load_initial_code", error);
   }
 
   editor.setValue(initialCode || 'print("hola")\n');
@@ -554,6 +750,9 @@ async function initBridgeAndCode(monaco) {
 
 function startMonaco() {
   bindToolbarButtons();
+  registerGlobalHotkeys();
+  initBottomTabs();
+  initVerticalSplitter();
   window.MonacoEnvironment = {
     getWorkerUrl: function () {
       const code = `
@@ -616,7 +815,25 @@ function startMonaco() {
           return true;
         });
         if (!found) {
-          return null;
+          return (async () => {
+            try {
+              const hoverMethod = resolveApiMethod("lsp_hover");
+              if (!hoverMethod) return null;
+              const response = await hoverMethod(getEditorCode(), position.lineNumber, position.column);
+              if (!response || !response.ok || !response.contents) return null;
+              return {
+                range: {
+                  startLineNumber: position.lineNumber,
+                  startColumn: Math.max(1, position.column - 1),
+                  endLineNumber: position.lineNumber,
+                  endColumn: position.column + 1,
+                },
+                contents: [{ value: String(response.contents) }],
+              };
+            } catch (_error) {
+              return null;
+            }
+          })();
         }
         const textCode = found.code ? `[${found.code}] ` : "";
         return {
@@ -631,11 +848,36 @@ function startMonaco() {
       },
     });
 
+    monaco.languages.registerCompletionItemProvider("python", {
+      triggerCharacters: [".", "(", "[", "'", "\""],
+      provideCompletionItems: async function (model, position) {
+        if (!editor || model !== editor.getModel()) {
+          return { suggestions: [] };
+        }
+        try {
+          const completeMethod = resolveApiMethod("lsp_complete");
+          if (!completeMethod) return { suggestions: [] };
+          const response = await completeMethod(getEditorCode(), position.lineNumber, position.column);
+          const items = Array.isArray(response && response.items) ? response.items : [];
+          const suggestions = items.map((item) => ({
+            label: item.label || "",
+            kind: completionKind(monaco, item.kind),
+            detail: item.detail || "",
+            documentation: item.documentation || "",
+            insertText: item.insertText || item.label || "",
+            range: undefined,
+          }));
+          return { suggestions };
+        } catch (_error) {
+          return { suggestions: [] };
+        }
+      },
+    });
+
     try {
       initEvents(monacoRef);
     } catch (error) {
-      showRunMessage(`js error: ${String(error)}`);
-      stderrNode.textContent = String(error);
+      reportError("initEvents", error);
     }
     initBridgeAndCode(monacoRef);
   });

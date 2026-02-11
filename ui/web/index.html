@@ -18,20 +18,33 @@
     <span id="status">Ready</span>
   </div>
 
-  <div id="main">
-    <div id="editor"></div>
-    <div id="problems-panel">
-      <h3>Problems</h3>
-      <ul id="problems-list"></ul>
+  <div id="workspace">
+    <div id="top-pane">
+      <div id="main">
+        <div id="editor"></div>
+        <div id="problems-panel">
+          <h3>Problems</h3>
+          <ul id="problems-list"></ul>
+        </div>
+      </div>
     </div>
-  </div>
+    <div id="bottom-resizer" aria-label="Resize output panel"></div>
 
-  <div id="output-panel">
-    <h3>Output</h3>
-    <pre id="run-status"></pre>
-    <pre id="stdout"></pre>
-    <h3>Errors</h3>
-    <pre id="stderr"></pre>
+    <div id="bottom-pane">
+      <div id="bottom-tabs">
+        <button id="tab-output" class="tab-btn active" type="button">Output</button>
+        <button id="tab-errors" class="tab-btn" type="button">Errors</button>
+      </div>
+      <div id="bottom-scroll">
+        <section id="view-output" class="tab-view active">
+          <pre id="run-status"></pre>
+          <pre id="stdout"></pre>
+        </section>
+        <section id="view-errors" class="tab-view">
+          <pre id="stderr"></pre>
+        </section>
+      </div>
+    </div>
   </div>
 
   <div id="fix-preview-modal" class="modal hidden">
@@ -46,6 +59,6 @@
     </div>
   </div>
 
-  <script src="./app.js"></script>
+  <script src="app.js" defer></script>
 </body>
 </html>
