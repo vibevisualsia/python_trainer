@@ -99,7 +99,30 @@ def test_fix_code_returns_expected_shape_when_ruff_missing(monkeypatch):
     api = VscodeApi()
     monkeypatch.setattr("ui.vscode_app.shutil.which", lambda _name: None)
     result = api.fix_code("print(1)\n")
+    assert result["ok"] is False
     assert result["changed"] is False
     assert result["code_new"] == "print(1)\n"
+    assert "ruff" in result["message"].lower()
+    assert result["available"]["ruff"] is False
     assert "summary" in result
     assert isinstance(result["summary"], dict)
+
+
+def test_api_capabilities_shape_when_tools_missing(monkeypatch):
+    api = VscodeApi()
+    monkeypatch.setattr("ui.vscode_app.shutil.which", lambda _name: None)
+    capabilities = api.api_capabilities()
+    assert capabilities["ok"] is True
+    assert set(capabilities["available"].keys()) == {"ruff", "pyright"}
+    assert capabilities["available"]["ruff"] is False
+    assert capabilities["available"]["pyright"] is False
+    assert set(capabilities["versions"].keys()) == {"ruff", "pyright"}
+
+
+def test_format_code_returns_error_when_ruff_missing(monkeypatch):
+    api = VscodeApi()
+    monkeypatch.setattr("ui.vscode_app.shutil.which", lambda _name: None)
+    result = api.format_code("print(1)\n")
+    assert result["ok"] is False
+    assert "ruff" in result["message"].lower()
+    assert result["available"]["ruff"] is False

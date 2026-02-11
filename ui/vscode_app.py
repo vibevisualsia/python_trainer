@@ -20,6 +20,33 @@ from core.runner import run_user_code
 from core.validator import validate_user_code
 
 
+def _tool_available(tool_name: str) -> bool:
+    return shutil.which(tool_name) is not None
+
+
+def _tool_version(tool_name: str) -> str:
+    if not _tool_available(tool_name):
+        return ""
+    try:
+        completed = subprocess.run(
+            [tool_name, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except Exception:
+        return ""
+    version_text = (completed.stdout or completed.stderr or "").strip()
+    return version_text.splitlines()[0] if version_text else ""
+
+
+def _available_map() -> Dict[str, bool]:
+    return {
+        "ruff": _tool_available("ruff"),
+        "pyright": _tool_available("pyright"),
+    }
+
+
 def _safe_line(value: Any, default: int = 1) -> int:
     try:
         return max(1, int(value))
@@ -258,20 +285,65 @@ class VscodeApi:
             payload["hint"] = self._study_hint(code, payload)
         return payload
 
+    def api_capabilities(self) -> Dict[str, Any]:
+        available = _available_map()
+        versions = {
+            "ruff": _tool_version("ruff") if available["ruff"] else "",
+            "pyright": _tool_version("pyright") if available["pyright"] else "",
+        }
+        return {
+            "ok": True,
+            "available": available,
+            "versions": versions,
+        }
+
     def lint_code(self, code: str) -> Dict[str, Any]:
+        available = _available_map()
+        if not available["ruff"]:
+            return {
+                "ok": False,
+                "diagnostics": [],
+                "message": "ruff no instalado",
+                "available": available,
+            }
+
         tmp_file = _write_temp_code(code)
         try:
-            if shutil.which("ruff") is None:
-                return {"diagnostics": []}
             completed = subprocess.run(
                 ["ruff", "check", "--output-format", "json", str(tmp_file)],
                 capture_output=True,
                 text=True,
                 timeout=8.0,
             )
-            return {"diagnostics": _parse_ruff_output(completed.stdout or "")}
-        except Exception:
-            return {"diagnostics": []}
+            diagnostics = _parse_ruff_output(completed.stdout or "")
+            return {
+                "ok": True,
+                "diagnostics": diagnostics,
+                "message": "",
+                "available": available,
+            }
+        except FileNotFoundError:
+            available["ruff"] = False
+            return {
+                "ok": False,
+                "diagnostics": [],
+                "message": "ruff no instalado",
+                "available": available,
+            }
+        except subprocess.CalledProcessError as exc:
+            return {
+                "ok": False,
+                "diagnostics": [],
+                "message": (exc.stderr or exc.stdout or str(exc)).strip(),
+                "available": available,
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "diagnostics": [],
+                "message": str(exc),
+                "available": available,
+            }
         finally:
             try:
                 tmp_file.unlink(missing_ok=True)
@@ -279,19 +351,52 @@ class VscodeApi:
                 pass
 
     def typecheck_code(self, code: str) -> Dict[str, Any]:
+        available = _available_map()
+        if not available["pyright"]:
+            return {
+                "ok": False,
+                "diagnostics": [],
+                "message": "pyright no instalado",
+                "available": available,
+            }
+
         tmp_file = _write_temp_code(code)
         try:
-            if shutil.which("pyright") is None:
-                return {"diagnostics": []}
             completed = subprocess.run(
                 ["pyright", "--outputjson", str(tmp_file)],
                 capture_output=True,
                 text=True,
                 timeout=10.0,
             )
-            return {"diagnostics": _parse_pyright_output(completed.stdout or "")}
-        except Exception:
-            return {"diagnostics": []}
+            diagnostics = _parse_pyright_output(completed.stdout or "")
+            return {
+                "ok": True,
+                "diagnostics": diagnostics,
+                "message": "",
+                "available": available,
+            }
+        except FileNotFoundError:
+            available["pyright"] = False
+            return {
+                "ok": False,
+                "diagnostics": [],
+                "message": "pyright no instalado",
+                "available": available,
+            }
+        except subprocess.CalledProcessError as exc:
+            return {
+                "ok": False,
+                "diagnostics": [],
+                "message": (exc.stderr or exc.stdout or str(exc)).strip(),
+                "available": available,
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "diagnostics": [],
+                "message": str(exc),
+                "available": available,
+            }
         finally:
             try:
                 tmp_file.unlink(missing_ok=True)
@@ -299,10 +404,18 @@ class VscodeApi:
                 pass
 
     def format_code(self, code: str) -> Dict[str, Any]:
+        available = _available_map()
+        if not available["ruff"]:
+            return {
+                "ok": False,
+                "message": "ruff no instalado",
+                "code": code,
+                "diagnostics": [],
+                "available": available,
+            }
+
         tmp_file = _write_temp_code(code)
         try:
-            if shutil.which("ruff") is None:
-                return {"ok": False, "message": "ruff no esta disponible.", "code": code}
             completed = subprocess.run(
                 ["ruff", "format", str(tmp_file)],
                 capture_output=True,
@@ -314,6 +427,8 @@ class VscodeApi:
                     "ok": False,
                     "message": (completed.stderr or completed.stdout or "No se pudo formatear.").strip(),
                     "code": code,
+                    "diagnostics": [],
+                    "available": available,
                 }
             new_code = tmp_file.read_text(encoding="utf-8")
             changed = new_code != code
@@ -322,9 +437,34 @@ class VscodeApi:
                 "changed": changed,
                 "code": new_code,
                 "message": "Codigo formateado." if changed else "No habia cambios de formato.",
+                "diagnostics": [],
+                "available": available,
+            }
+        except FileNotFoundError:
+            available["ruff"] = False
+            return {
+                "ok": False,
+                "message": "ruff no instalado",
+                "code": code,
+                "diagnostics": [],
+                "available": available,
+            }
+        except subprocess.CalledProcessError as exc:
+            return {
+                "ok": False,
+                "message": (exc.stderr or exc.stdout or str(exc)).strip(),
+                "code": code,
+                "diagnostics": [],
+                "available": available,
             }
         except Exception as exc:
-            return {"ok": False, "message": str(exc), "code": code}
+            return {
+                "ok": False,
+                "message": str(exc),
+                "code": code,
+                "diagnostics": [],
+                "available": available,
+            }
         finally:
             try:
                 tmp_file.unlink(missing_ok=True)
@@ -332,20 +472,24 @@ class VscodeApi:
                 pass
 
     def fix_code(self, code: str) -> Dict[str, Any]:
+        available = _available_map()
+        if not available["ruff"]:
+            return {
+                "ok": False,
+                "changed": False,
+                "code_new": code,
+                "summary": {
+                    "text": "ruff no instalado",
+                    "changes": 0,
+                    "rules": [],
+                },
+                "diagnostics": [],
+                "message": "ruff no instalado",
+                "available": available,
+            }
+
         tmp_file = _write_temp_code(code)
         try:
-            if shutil.which("ruff") is None:
-                return {
-                    "ok": False,
-                    "changed": False,
-                    "code_new": code,
-                    "summary": {
-                        "text": "ruff no esta disponible.",
-                        "changes": 0,
-                        "rules": [],
-                    },
-                }
-
             before_check = subprocess.run(
                 ["ruff", "check", "--output-format", "json", str(tmp_file)],
                 capture_output=True,
@@ -379,22 +523,58 @@ class VscodeApi:
                 "ok": True,
                 "changed": changed,
                 "code_new": code_new,
+                "message": summary_text,
                 "summary": {
                     "text": summary_text,
                     "changes": changes_count,
                     "rules": applied_rules,
                 },
+                "diagnostics": after_diagnostics,
+                "available": available,
+            }
+        except FileNotFoundError:
+            available["ruff"] = False
+            return {
+                "ok": False,
+                "changed": False,
+                "code_new": code,
+                "message": "ruff no instalado",
+                "summary": {
+                    "text": "ruff no instalado",
+                    "changes": 0,
+                    "rules": [],
+                },
+                "diagnostics": [],
+                "available": available,
+            }
+        except subprocess.CalledProcessError as exc:
+            error_message = (exc.stderr or exc.stdout or str(exc)).strip()
+            return {
+                "ok": False,
+                "changed": False,
+                "code_new": code,
+                "message": error_message,
+                "summary": {
+                    "text": error_message,
+                    "changes": 0,
+                    "rules": [],
+                },
+                "diagnostics": [],
+                "available": available,
             }
         except Exception as exc:
             return {
                 "ok": False,
                 "changed": False,
                 "code_new": code,
+                "message": str(exc),
                 "summary": {
                     "text": str(exc),
                     "changes": 0,
                     "rules": [],
                 },
+                "diagnostics": [],
+                "available": available,
             }
         finally:
             try:

@@ -7,12 +7,18 @@ let lintStatusTimer = null;
 let latestDiagnostics = [];
 let hoverProviderDisposable = null;
 let pendingFixPayload = null;
+let apiCapabilities = {
+  available: { ruff: true, pyright: true },
+  versions: { ruff: "", pyright: "" },
+};
 
 const statusNode = document.getElementById("status");
 const runStatusNode = document.getElementById("run-status");
 const stdoutNode = document.getElementById("stdout");
 const stderrNode = document.getElementById("stderr");
 const problemsListNode = document.getElementById("problems-list");
+const formatButtonNode = document.getElementById("btn-format");
+const fixButtonNode = document.getElementById("btn-fix");
 const fixModalNode = document.getElementById("fix-preview-modal");
 const fixSummaryNode = document.getElementById("fix-summary");
 const fixDiffNode = document.getElementById("fix-diff");
@@ -33,6 +39,48 @@ function setTemporaryStatus(text, ms = 1200) {
 
 function showRunMessage(text) {
   runStatusNode.textContent = text || "";
+}
+
+function mergeCapabilities(capabilitiesPayload) {
+  const fallback = { ruff: true, pyright: true };
+  const available = (capabilitiesPayload && capabilitiesPayload.available) || {};
+  const versions = (capabilitiesPayload && capabilitiesPayload.versions) || {};
+  apiCapabilities = {
+    available: {
+      ruff: typeof available.ruff === "boolean" ? available.ruff : fallback.ruff,
+      pyright: typeof available.pyright === "boolean" ? available.pyright : fallback.pyright,
+    },
+    versions: {
+      ruff: String(versions.ruff || ""),
+      pyright: String(versions.pyright || ""),
+    },
+  };
+}
+
+function applyCapabilitiesUI() {
+  const hasRuff = apiCapabilities.available.ruff !== false;
+  if (formatButtonNode) {
+    formatButtonNode.disabled = !hasRuff;
+  }
+  if (fixButtonNode) {
+    fixButtonNode.disabled = !hasRuff;
+  }
+  if (!hasRuff) {
+    showRunMessage("Aviso: ruff no instalado. Format/Fix deshabilitados.");
+  }
+}
+
+async function loadCapabilities() {
+  if (!bridgeApi || typeof bridgeApi.api_capabilities !== "function") {
+    applyCapabilitiesUI();
+    return;
+  }
+  try {
+    const payload = await bridgeApi.api_capabilities();
+    mergeCapabilities(payload || {});
+  } catch (_error) {
+  }
+  applyCapabilitiesUI();
 }
 
 function debounce(fn, delay) {
@@ -266,8 +314,21 @@ async function runLintDiagnostics(monaco) {
   }
   try {
     const lint = await bridgeApi.lint_code(getEditorCode());
-    const typecheck = await bridgeApi.typecheck_code(getEditorCode());
-    const merged = [...(lint.diagnostics || []), ...(typecheck.diagnostics || [])];
+    if (lint && lint.available) {
+      mergeCapabilities({ available: lint.available });
+      applyCapabilitiesUI();
+    }
+    const lintDiagnostics = Array.isArray(lint && lint.diagnostics) ? lint.diagnostics : [];
+    let typeDiagnostics = [];
+    if (apiCapabilities.available.pyright !== false && typeof bridgeApi.typecheck_code === "function") {
+      const typecheck = await bridgeApi.typecheck_code(getEditorCode());
+      if (typecheck && typecheck.available) {
+        mergeCapabilities({ available: typecheck.available });
+        applyCapabilitiesUI();
+      }
+      typeDiagnostics = Array.isArray(typecheck && typecheck.diagnostics) ? typecheck.diagnostics : [];
+    }
+    const merged = [...lintDiagnostics, ...typeDiagnostics];
     const markers = normalizeDiagnostics(monaco, merged);
     applyMarkers(monaco, markers);
     lintStatusTimer = setTimeout(() => setStatus("Ready"), 250);
@@ -401,6 +462,7 @@ async function initBridgeAndCode(monaco) {
     editor.setValue('print("hola")\n');
     return;
   }
+  await loadCapabilities();
 
   let initialCode = "";
   try {
