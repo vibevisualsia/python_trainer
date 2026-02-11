@@ -14,9 +14,15 @@ let hotkeysBound = false;
 let bindRetryTimer = null;
 let bindRetryStartedAt = 0;
 let apiCapabilities = {
-  available: { ruff: true, pyright: true },
-  versions: { ruff: "", pyright: "" },
+  available: { ruff: true, pyright: true, pyright_langserver: true },
+  versions: { ruff: "", pyright: "", pyright_langserver: "" },
 };
+let toolState = {
+  ruff: "unknown",
+  pyright: "unknown",
+  lsp: "unknown",
+};
+let runtimeState = "Ready";
 const TOOLBAR_BUTTON_IDS = ["btn-run", "btn-run-exam", "btn-check", "btn-format", "btn-fix", "btn-save"];
 
 const statusNode = document.getElementById("status");
@@ -38,9 +44,13 @@ const fixSummaryNode = document.getElementById("fix-summary");
 const fixDiffNode = document.getElementById("fix-diff");
 const fixApplyButton = document.getElementById("btn-fix-apply");
 const fixCancelButton = document.getElementById("btn-fix-cancel");
+const statusRuffNode = document.getElementById("status-ruff");
+const statusPyrightNode = document.getElementById("status-pyright");
+const statusLspNode = document.getElementById("status-lsp");
 
 function setStatus(text) {
-  statusNode.textContent = text;
+  runtimeState = text || "";
+  updateRuntimeStateBadge();
 }
 
 function setTemporaryStatus(text, ms = 1200) {
@@ -53,6 +63,61 @@ function setTemporaryStatus(text, ms = 1200) {
 
 function showRunMessage(text) {
   runStatusNode.textContent = text || "";
+}
+
+function badgeClassForState(state) {
+  if (state === "ok") return "tool-badge-ok";
+  if (state === "starting") return "tool-badge-warn";
+  if (state === "missing" || state === "error") return "tool-badge-error";
+  return "tool-badge-unknown";
+}
+
+function toolLabel(toolKey, state) {
+  const nameMap = { ruff: "Ruff", pyright: "Pyright", lsp: "LSP" };
+  const stateMap = {
+    ok: "OK",
+    missing: "missing",
+    error: "error",
+    starting: "starting",
+    unknown: "...",
+  };
+  return `${nameMap[toolKey] || toolKey}: ${stateMap[state] || state}`;
+}
+
+function applyToolBadge(node, toolKey, state) {
+  if (!node) return;
+  node.classList.remove("tool-badge-ok", "tool-badge-error", "tool-badge-warn", "tool-badge-unknown");
+  node.classList.add("tool-badge", badgeClassForState(state));
+  node.textContent = toolLabel(toolKey, state);
+}
+
+function hasToolIssues() {
+  return ["ruff", "pyright", "lsp"].some((key) => toolState[key] !== "ok");
+}
+
+function updateToolBadges() {
+  applyToolBadge(statusRuffNode, "ruff", toolState.ruff);
+  applyToolBadge(statusPyrightNode, "pyright", toolState.pyright);
+  applyToolBadge(statusLspNode, "lsp", toolState.lsp);
+  updateRuntimeStateBadge();
+}
+
+function updateRuntimeStateBadge() {
+  if (!statusNode) return;
+  statusNode.classList.remove("runtime-state-ok", "runtime-state-warn", "runtime-state-error");
+  const stateLower = String(runtimeState || "").toLowerCase();
+  if (stateLower.includes("error")) {
+    statusNode.classList.add("runtime-state-error");
+    statusNode.textContent = runtimeState;
+    return;
+  }
+  if (hasToolIssues()) {
+    statusNode.classList.add("runtime-state-warn");
+    statusNode.textContent = runtimeState === "Ready" ? "Ready (degraded)" : runtimeState;
+    return;
+  }
+  statusNode.classList.add("runtime-state-ok");
+  statusNode.textContent = runtimeState;
 }
 
 function activateBottomTab(tabName) {
@@ -119,23 +184,34 @@ async function ensureBridge() {
 }
 
 function mergeCapabilities(capabilitiesPayload) {
-  const fallback = { ruff: true, pyright: true };
+  const fallback = { ruff: true, pyright: true, pyright_langserver: true };
   const available = (capabilitiesPayload && capabilitiesPayload.available) || {};
   const versions = (capabilitiesPayload && capabilitiesPayload.versions) || {};
   apiCapabilities = {
     available: {
       ruff: typeof available.ruff === "boolean" ? available.ruff : fallback.ruff,
       pyright: typeof available.pyright === "boolean" ? available.pyright : fallback.pyright,
+      pyright_langserver:
+        typeof available.pyright_langserver === "boolean"
+          ? available.pyright_langserver
+          : fallback.pyright_langserver,
     },
     versions: {
       ruff: String(versions.ruff || ""),
       pyright: String(versions.pyright || ""),
+      pyright_langserver: String(versions.pyright_langserver || ""),
     },
   };
 }
 
 function applyCapabilitiesUI() {
   const hasRuff = apiCapabilities.available.ruff !== false;
+  toolState.ruff = hasRuff ? "ok" : "missing";
+  toolState.pyright = apiCapabilities.available.pyright !== false ? "ok" : "missing";
+  if (toolState.lsp === "unknown") {
+    toolState.lsp = apiCapabilities.available.pyright_langserver !== false ? "starting" : "missing";
+  }
+  updateToolBadges();
   if (formatButtonNode) {
     formatButtonNode.disabled = !hasRuff;
   }
@@ -165,6 +241,44 @@ async function loadCapabilities() {
     reportError("loadCapabilities", error);
   }
   applyCapabilitiesUI();
+}
+
+async function loadLspStatus() {
+  await ensureBridge();
+  if (!bridgeApi) {
+    toolState.lsp = "error";
+    updateToolBadges();
+    return;
+  }
+  toolState.lsp = "starting";
+  updateToolBadges();
+  const statusMethod = resolveApiMethod("api_lsp_status");
+  if (!statusMethod) {
+    toolState.lsp = "missing";
+    updateToolBadges();
+    return;
+  }
+  try {
+    const payload = await statusMethod();
+    const statusValue = String((payload && payload.status) || "").toLowerCase();
+    if (statusValue === "ok") {
+      toolState.lsp = "ok";
+    } else if (statusValue === "missing") {
+      toolState.lsp = "missing";
+      if (payload && payload.message) {
+        showRunMessage(String(payload.message));
+      }
+    } else {
+      toolState.lsp = "error";
+      if (payload && payload.message) {
+        appendErrorPanel(`LSP: ${payload.message}`);
+      }
+    }
+  } catch (error) {
+    toolState.lsp = "error";
+    reportError("loadLspStatus", error);
+  }
+  updateToolBadges();
 }
 
 function debounce(fn, delay) {
@@ -735,6 +849,7 @@ async function initBridgeAndCode(monaco) {
     return;
   }
   await loadCapabilities();
+  await loadLspStatus();
 
   let initialCode = "";
   try {
@@ -749,6 +864,7 @@ async function initBridgeAndCode(monaco) {
 }
 
 function startMonaco() {
+  updateToolBadges();
   bindToolbarButtons();
   registerGlobalHotkeys();
   initBottomTabs();

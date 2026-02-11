@@ -144,3 +144,24 @@ def test_syntax_check_reports_python_error():
     assert diag["code"] == "SYNTAX"
     assert diag["severity"] == "error"
     assert diag["startLineNumber"] >= 1
+
+
+def test_api_lsp_status_shape_when_ok(monkeypatch):
+    api = VscodeApi()
+    monkeypatch.setattr("ui.vscode_app._pyright_langserver_command", lambda: [r"C:\\tool\\pyright-langserver", "--stdio"])
+    monkeypatch.setattr("ui.vscode_app._tool_version", lambda _name: "pyright-langserver 1.0")
+    monkeypatch.setattr(api._lsp_client, "_ensure_started", lambda: True)
+    result = api.api_lsp_status()
+    assert set(result.keys()) == {"ok", "status", "version", "message"}
+    assert result["ok"] is True
+    assert result["status"] == "ok"
+    assert "pyright-langserver" in result["version"].lower()
+
+
+def test_api_lsp_status_missing_when_langserver_unavailable(monkeypatch):
+    api = VscodeApi()
+    monkeypatch.setattr("ui.vscode_app._pyright_langserver_command", lambda: None)
+    result = api.api_lsp_status()
+    assert set(result.keys()) == {"ok", "status", "version", "message"}
+    assert result["ok"] is False
+    assert result["status"] == "missing"

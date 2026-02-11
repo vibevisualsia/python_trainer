@@ -15,7 +15,12 @@
     <button id="btn-format">Format</button>
     <button id="btn-fix">Fix</button>
     <button id="btn-save">Save</button>
-    <span id="status">Ready</span>
+    <div id="tool-status-bar" aria-live="polite">
+      <span id="status-ruff" class="tool-badge tool-badge-unknown">Ruff: ...</span>
+      <span id="status-pyright" class="tool-badge tool-badge-unknown">Pyright: ...</span>
+      <span id="status-lsp" class="tool-badge tool-badge-unknown">LSP: ...</span>
+      <span id="status" class="runtime-state">Ready</span>
+    </div>
   </div>
 
   <div id="workspace">

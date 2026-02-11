@@ -469,6 +469,38 @@ class _PyrightLspClient:
         self._process = None
         self._document_opened = False
 
+    def status(self) -> Dict[str, Any]:
+        command = _pyright_langserver_command()
+        if not command:
+            return {
+                "ok": False,
+                "status": "missing",
+                "version": "",
+                "message": "pyright-langserver no disponible.",
+            }
+        version = _tool_version("pyright-langserver")
+        try:
+            if self._ensure_started():
+                return {
+                    "ok": True,
+                    "status": "ok",
+                    "version": version,
+                    "message": "pyright-langserver listo.",
+                }
+            return {
+                "ok": False,
+                "status": "error",
+                "version": version,
+                "message": "No se pudo iniciar pyright-langserver.",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "status": "error",
+                "version": version,
+                "message": str(exc),
+            }
+
 
 class VscodeApi:
     def __init__(self) -> None:
@@ -606,6 +638,9 @@ class VscodeApi:
             "available": available,
             "versions": versions,
         }
+
+    def api_lsp_status(self) -> Dict[str, Any]:
+        return self._lsp_client.status()
 
     def syntax_check(self, code: str) -> Dict[str, Any]:
         try:
