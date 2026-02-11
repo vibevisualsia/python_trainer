@@ -7,6 +7,7 @@ let lintStatusTimer = null;
 let latestDiagnostics = [];
 let hoverProviderDisposable = null;
 let pendingFixPayload = null;
+let toolbarBound = false;
 let apiCapabilities = {
   available: { ruff: true, pyright: true },
   versions: { ruff: "", pyright: "" },
@@ -41,6 +42,33 @@ function showRunMessage(text) {
   runStatusNode.textContent = text || "";
 }
 
+window.addEventListener("error", (event) => {
+  const msg = event && event.message ? event.message : "Error JavaScript no identificado.";
+  showRunMessage(`js error: ${msg}`);
+  stderrNode.textContent = `${msg}\n${(event && event.filename) || ""}:${(event && event.lineno) || ""}`;
+});
+
+function toCamelCase(value) {
+  return String(value || "").replace(/_([a-z])/g, (_match, char) => char.toUpperCase());
+}
+
+function resolveApiMethod(methodName) {
+  if (!bridgeApi) return null;
+  const candidates = [methodName, toCamelCase(methodName)];
+  for (const candidate of candidates) {
+    if (typeof bridgeApi[candidate] === "function") {
+      return bridgeApi[candidate].bind(bridgeApi);
+    }
+  }
+  return null;
+}
+
+async function ensureBridge() {
+  if (bridgeApi) return bridgeApi;
+  bridgeApi = await waitForBridge(15, 120);
+  return bridgeApi;
+}
+
 function mergeCapabilities(capabilitiesPayload) {
   const fallback = { ruff: true, pyright: true };
   const available = (capabilitiesPayload && capabilitiesPayload.available) || {};
@@ -71,12 +99,18 @@ function applyCapabilitiesUI() {
 }
 
 async function loadCapabilities() {
-  if (!bridgeApi || typeof bridgeApi.api_capabilities !== "function") {
+  await ensureBridge();
+  if (!bridgeApi) {
+    setStatus("Bridge no disponible");
+    return;
+  }
+  const capabilitiesMethod = resolveApiMethod("api_capabilities");
+  if (!capabilitiesMethod) {
     applyCapabilitiesUI();
     return;
   }
   try {
-    const payload = await bridgeApi.api_capabilities();
+    const payload = await capabilitiesMethod();
     mergeCapabilities(payload || {});
   } catch (_error) {
   }
@@ -256,18 +290,24 @@ function updateOutput(result) {
 }
 
 async function executeAction(methodName, mode) {
-  if (!bridgeApi || !editor) {
+  if (!editor) {
+    showRunMessage("Editor no disponible.");
+    return;
+  }
+  await ensureBridge();
+  if (!bridgeApi) {
     showRunMessage("Bridge no disponible. Reinicia la app.");
     return;
   }
+  showRunMessage(`Ejecutando ${methodName}...`);
   if (methodName === "check_code") {
     setStatus("Checking");
   } else {
     setStatus("Running");
   }
   try {
-    const runnerMethod = bridgeApi[methodName];
-    if (typeof runnerMethod !== "function") {
+    const runnerMethod = resolveApiMethod(methodName);
+    if (!runnerMethod) {
       throw new Error(`Metodo no disponible: ${methodName}`);
     }
     const result = await runnerMethod(getEditorCode(), mode);
@@ -288,13 +328,22 @@ async function check() {
 }
 
 async function saveCode() {
-  if (!bridgeApi || !editor) {
+  if (!editor) {
+    showRunMessage("Editor no disponible.");
+    return;
+  }
+  await ensureBridge();
+  if (!bridgeApi) {
     showRunMessage("Bridge no disponible. No se pudo guardar.");
     return;
   }
   setStatus("Running");
   try {
-    const response = await bridgeApi.save_code(getEditorCode());
+    const saveMethod = resolveApiMethod("save_code");
+    if (!saveMethod) {
+      throw new Error("Metodo no disponible: save_code");
+    }
+    const response = await saveMethod(getEditorCode());
     if (response && response.ok) {
       setTemporaryStatus("Saved");
     } else {
@@ -307,26 +356,36 @@ async function saveCode() {
 }
 
 async function runLintDiagnostics(monaco) {
-  if (!bridgeApi || !editor) return;
+  if (!editor) return;
+  await ensureBridge();
+  if (!bridgeApi) return;
   setStatus("Linting");
   if (lintStatusTimer) {
     clearTimeout(lintStatusTimer);
   }
   try {
-    const lint = await bridgeApi.lint_code(getEditorCode());
+    const lintMethod = resolveApiMethod("lint_code");
+    if (!lintMethod) {
+      setStatus("Ready");
+      return;
+    }
+    const lint = await lintMethod(getEditorCode());
     if (lint && lint.available) {
       mergeCapabilities({ available: lint.available });
       applyCapabilitiesUI();
     }
     const lintDiagnostics = Array.isArray(lint && lint.diagnostics) ? lint.diagnostics : [];
     let typeDiagnostics = [];
-    if (apiCapabilities.available.pyright !== false && typeof bridgeApi.typecheck_code === "function") {
-      const typecheck = await bridgeApi.typecheck_code(getEditorCode());
-      if (typecheck && typecheck.available) {
-        mergeCapabilities({ available: typecheck.available });
-        applyCapabilitiesUI();
+    if (apiCapabilities.available.pyright !== false) {
+      const typecheckMethod = resolveApiMethod("typecheck_code");
+      if (typecheckMethod) {
+        const typecheck = await typecheckMethod(getEditorCode());
+        if (typecheck && typecheck.available) {
+          mergeCapabilities({ available: typecheck.available });
+          applyCapabilitiesUI();
+        }
+        typeDiagnostics = Array.isArray(typecheck && typecheck.diagnostics) ? typecheck.diagnostics : [];
       }
-      typeDiagnostics = Array.isArray(typecheck && typecheck.diagnostics) ? typecheck.diagnostics : [];
     }
     const merged = [...lintDiagnostics, ...typeDiagnostics];
     const markers = normalizeDiagnostics(monaco, merged);
@@ -339,14 +398,19 @@ async function runLintDiagnostics(monaco) {
 }
 
 async function applyCodeTransform(methodName, stateText) {
-  if (!bridgeApi || !editor) {
+  if (!editor) {
+    showRunMessage("Editor no disponible.");
+    return;
+  }
+  await ensureBridge();
+  if (!bridgeApi) {
     showRunMessage("Bridge no disponible. Reinicia la app.");
     return;
   }
   setStatus(stateText);
   try {
-    const method = bridgeApi[methodName];
-    if (typeof method !== "function") {
+    const method = resolveApiMethod(methodName);
+    if (!method) {
       throw new Error(`Metodo no disponible: ${methodName}`);
     }
     const currentCode = getEditorCode();
@@ -397,13 +461,25 @@ async function applyCodeTransform(methodName, stateText) {
   }
 }
 
+function bindToolbarButtons() {
+  if (toolbarBound) return;
+  const runBtn = document.getElementById("btn-run");
+  const runExamBtn = document.getElementById("btn-run-exam");
+  const checkBtn = document.getElementById("btn-check");
+  const saveBtn = document.getElementById("btn-save");
+  const formatBtn = document.getElementById("btn-format");
+  const fixBtn = document.getElementById("btn-fix");
+  if (runBtn) runBtn.addEventListener("click", () => run("study"));
+  if (runExamBtn) runExamBtn.addEventListener("click", () => run("exam"));
+  if (checkBtn) checkBtn.addEventListener("click", () => check());
+  if (saveBtn) saveBtn.addEventListener("click", () => saveCode());
+  if (formatBtn) formatBtn.addEventListener("click", () => applyCodeTransform("format_code", "Formatting"));
+  if (fixBtn) fixBtn.addEventListener("click", () => applyCodeTransform("fix_code", "Fixing"));
+  toolbarBound = true;
+}
+
 function initEvents(monaco) {
-  document.getElementById("btn-run").addEventListener("click", () => run("study"));
-  document.getElementById("btn-run-exam").addEventListener("click", () => run("exam"));
-  document.getElementById("btn-check").addEventListener("click", () => check());
-  document.getElementById("btn-save").addEventListener("click", () => saveCode());
-  document.getElementById("btn-format").addEventListener("click", () => applyCodeTransform("format_code", "Formatting"));
-  document.getElementById("btn-fix").addEventListener("click", () => applyCodeTransform("fix_code", "Fixing"));
+  bindToolbarButtons();
   if (fixApplyButton) {
     fixApplyButton.addEventListener("click", () => {
       applyPendingFix();
@@ -477,6 +553,7 @@ async function initBridgeAndCode(monaco) {
 }
 
 function startMonaco() {
+  bindToolbarButtons();
   window.MonacoEnvironment = {
     getWorkerUrl: function () {
       const code = `
@@ -554,7 +631,12 @@ function startMonaco() {
       },
     });
 
-    initEvents(monacoRef);
+    try {
+      initEvents(monacoRef);
+    } catch (error) {
+      showRunMessage(`js error: ${String(error)}`);
+      stderrNode.textContent = String(error);
+    }
     initBridgeAndCode(monacoRef);
   });
 }
