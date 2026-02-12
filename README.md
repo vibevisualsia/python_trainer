@@ -1,63 +1,71 @@
 # PythonTrainer
 
-PythonTrainer es una aplicación local y offline para practicar Python mediante lecciones y ejercicios guiados.
-
-Está pensada para aprender a tu ritmo, validar resultados y guardar el progreso sin depender de internet ni de librerías externas.
-
-La aplicación funciona tanto en modo gráfico (Tkinter) como en modo consola, e incluye un modo examen que oculta pistas y soluciones.
+PythonTrainer es una aplicación local y offline para practicar Python con lecciones, ejercicios y validación automática.  
+Está pensado para aprendizaje progresivo, guardando avance en JSON y permitiendo trabajar tanto en interfaz gráfica como en consola.
 
 ## Cómo ejecutar
 
 Desde la carpeta `python_trainer`:
 
-- **GUI:**  
-  `python main.py`
-
-- **CLI:**  
-  `python main.py --cli`
-
-- **Modo examen (GUI):**  
-  `python main.py --exam`
-
-- **Modo examen (CLI):**  
-  `python main.py --cli --exam`
+- **GUI (Tkinter):** `python main.py`
+- **CLI:** `python main.py --cli`
+- **Modo examen (GUI):** `python main.py --exam`
+- **Modo examen (CLI):** `python main.py --cli --exam`
+- **Modo VSCode-like (pywebview + Monaco):** `python -m ui.vscode_app`
 
 ## Cómo ejecutar tests
 
-Desde la raíz del proyecto (donde se encuentra `requirements-dev.txt`):
+Desde la raíz del proyecto:
 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-## Arquitectura de la aplicación
+## Arquitectura
 
-Flujo principal, en pasos simples:
+Flujo principal:
 
-1. `main.py` arranca la app.
-2. Decide si usar GUI o CLI según los flags.
-3. La interfaz (GUI/CLI) llama a funciones de `core/`.
-4. `core/` gestiona la lógica y el progreso.
-5. El progreso se guarda en disco.
+1. `main.py` inicia la aplicación y decide el modo de ejecución según flags.
+2. La capa `ui/` (CLI, Tkinter o VSCode-like) gestiona interacción del usuario.
+3. La capa `core/` ejecuta lógica de negocio: catálogo, runner, validador y progreso.
+4. El progreso se persiste en `%LOCALAPPDATA%\PythonTrainer\progress.json`.
+5. Los contenidos base viven en `data/catalog.json` (con fallback interno si falla).
 
-Esquema:
+Esquema simplificado:
 
-```
+```text
 main.py
   ↓
-ui (cli / gui)
+ui/ (cli.py | gui.py | vscode_app.py)
   ↓
-core (lógica)
+core/ (exercises, runner, validator, progress)
   ↓
-data (progress.json)
+data/ + almacenamiento local del usuario
 ```
 
-## Formato de catalogo (JSON)
+## Decisiones técnicas
 
-El archivo se coloca en `python_trainer/data/catalog.json`. Si existe y es valido, se usa; si no, la app usa el catalogo interno.
+- **Offline-first:** sin servicios cloud; toda la ejecución y persistencia es local.
+- **Compatibilidad didáctica:** CLI y GUI usan la misma lógica de `core/` para evitar comportamientos divergentes.
+- **Seguridad pragmática:** el runner bloquea imports peligrosos y ejecuta en subproceso con timeout.
+- **Fallbacks robustos:** si `ruff`, `pyright` o `pyright-langserver` no están disponibles, la UI sigue funcionando con avisos claros.
+- **Persistencia estable:** escritura de progreso en JSON con enfoque conservador para evitar corrupción.
 
-Formato minimo:
+## Estructura del proyecto
+
+- `main.py`: punto de entrada principal.
+- `core/`: lógica de dominio (ejecución, validación, progreso, catálogo).
+- `ui/`: interfaces de usuario (CLI, Tkinter y VSCode-like).
+- `data/`: datos estáticos, incluyendo catálogo de ejercicios.
+- `tests/`: tests unitarios.
+
+## Formato de catálogo (JSON)
+
+Ruta: `python_trainer/data/catalog.json`.  
+Si existe y es válido, se usa; si no, la app aplica fallback al catálogo interno.
+
+Ejemplo mínimo:
 
 ```json
 {
@@ -76,7 +84,9 @@ Formato minimo:
               "title": "Hola",
               "statement": "Crea la variable saludo y muestrala.",
               "starter_code": "saludo = ''",
-              "checks": [ { "type": "equals", "var": "saludo", "expected": "Hola" } ]
+              "checks": [
+                { "type": "equals", "var": "saludo", "expected": "Hola" }
+              ]
             }
           ]
         }
@@ -88,36 +98,12 @@ Formato minimo:
 
 ## Modo VSCode-like (MVP)
 
-Instala dependencias del modo editor web:
+Recomendado en Windows con Python 3.12:
 
 ```bash
 python -m pip install -r requirements-dev.txt
-```
-
-Lanza el modo VSCode-like (pywebview + Monaco):
-
-```bash
+python -m pip install ruff pyright pywebview
 python -m ui.vscode_app
 ```
 
-Incluye:
-
-- Monaco Editor en tema oscuro
-- Botones Run y Run Exam
-- Panel Output (stdout/stderr)
-- Panel Problems con markers de Monaco
-- Diagnosticos de sintaxis siempre (aunque falten herramientas externas)
-- Lint con `ruff` y typecheck con `pyright` (si estan instalados)
-- Autocompletado y hover usando `pyright-langserver` local
-
-### Requisitos y ejecucion recomendada (Windows)
-
-- Requisito recomendado para VSCode UI: Python 3.12.
-- Instalacion:
-  - `python -m pip install -r requirements-dev.txt`
-  - `python -m pip install ruff pyright pywebview`
-- Ejecucion:
-  - `python -m ui.vscode_app`
-- Nota:
-  - Si usas Python 3.14 para el curso, crea un venv con 3.12 para este modo.
-  - El backend intenta ejecutar `ruff` con `python -m ruff` para no depender de PATH.
+Si usas Python 3.14 para el curso, crea un entorno virtual separado con Python 3.12 para este modo.

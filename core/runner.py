@@ -1,3 +1,5 @@
+"""Sandboxed execution helpers for running learner code in a subprocess."""
+
 import ast
 import getpass
 import os
@@ -28,16 +30,19 @@ DEFAULT_MAX_CPU_S = 2
 
 
 def _is_safe_identifier(name: str) -> bool:
+    """Return True when a variable name is a valid Python identifier."""
     return name.isidentifier()
 
 
 def _sandbox_dir() -> Path:
+    """Create and return the per-user sandbox directory used as process CWD."""
     sandbox = Path(__file__).resolve().parent.parent / "sandbox" / getpass.getuser()
     sandbox.mkdir(parents=True, exist_ok=True)
     return sandbox
 
 
 def _detect_blocked_import(code: str) -> Optional[str]:
+    """Detect blocked module imports and return the offending root module name."""
     try:
         tree = ast.parse(code, mode="exec")
     except SyntaxError:
@@ -62,6 +67,7 @@ def _detect_blocked_import(code: str) -> Optional[str]:
 
 
 def _build_script(code: str, setup: Optional[Dict[str, Any]]) -> str:
+    """Build a script string by prepending safe setup variables to user code."""
     lines = []
     for key, value in (setup or {}).items():
         if _is_safe_identifier(key):
@@ -71,12 +77,14 @@ def _build_script(code: str, setup: Optional[Dict[str, Any]]) -> str:
 
 
 def _python_cmd() -> str:
+    """Return the Python interpreter command, handling frozen executables safely."""
     if getattr(sys, "frozen", False):
         return shutil.which("python") or shutil.which("py") or "python"
     return sys.executable
 
 
 def _build_preexec_limiter(max_memory_mb: int, max_cpu_s: int) -> Optional[Callable[[], None]]:
+    """Build a POSIX-only preexec function that applies CPU and memory limits."""
     if os.name == "nt" or resource is None:
         return None
 
@@ -84,6 +92,7 @@ def _build_preexec_limiter(max_memory_mb: int, max_cpu_s: int) -> Optional[Calla
     cpu_seconds = max(1, int(max_cpu_s))
 
     def _limit_resources() -> None:
+        """Apply OS resource limits in child process before user code runs."""
         try:
             resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
         except Exception:
@@ -109,6 +118,7 @@ def run_user_code(
     max_memory_mb: int = DEFAULT_MAX_MEMORY_MB,
     max_cpu_s: int = DEFAULT_MAX_CPU_S,
 ) -> Dict[str, Any]:
+    """Execute learner code in a subprocess and return a normalized result payload."""
     start = time.perf_counter()
     warnings: list[str] = []
 
@@ -135,6 +145,7 @@ def run_user_code(
     if preexec_limiter is not None:
         run_kwargs["preexec_fn"] = preexec_limiter
     else:
+        # Windows cannot enforce these limits with preexec_fn; report it as warning.
         warnings.append("Limites de CPU/memoria no disponibles en este sistema operativo.")
 
     try:

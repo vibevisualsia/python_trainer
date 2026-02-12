@@ -25,6 +25,7 @@ from core.validator import validate_user_code
 
 
 def _run_command(command: List[str], timeout: float = 3.0) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess command and capture UTF-8 text output."""
     return subprocess.run(
         command,
         capture_output=True,
@@ -34,6 +35,7 @@ def _run_command(command: List[str], timeout: float = 3.0) -> subprocess.Complet
 
 
 def _run_ruff_command(args: List[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    """Execute Ruff using module invocation first, then binary fallback."""
     last_error: Optional[Exception] = None
     commands = [
         [sys.executable, "-m", "ruff", *args],
@@ -51,6 +53,7 @@ def _run_ruff_command(args: List[str], timeout: float) -> subprocess.CompletedPr
 
 
 def _run_pyright_command(args: List[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    """Execute Pyright using module invocation first, then binary fallback."""
     last_error: Optional[Exception] = None
     commands = [
         [sys.executable, "-m", "pyright", *args],
@@ -68,6 +71,7 @@ def _run_pyright_command(args: List[str], timeout: float) -> subprocess.Complete
 
 
 def _pyright_langserver_command() -> Optional[List[str]]:
+    """Return a launch command for pyright-langserver when available."""
     commands = [
         [sys.executable, "-m", "pyright.langserver", "--stdio"],
         ["pyright-langserver", "--stdio"],
@@ -83,6 +87,7 @@ def _pyright_langserver_command() -> Optional[List[str]]:
 
 
 def _tool_available(tool_name: str) -> bool:
+    """Check tool availability with command-specific probing."""
     if tool_name == "ruff":
         try:
             completed = _run_ruff_command(["--version"], timeout=2.0)
@@ -101,6 +106,7 @@ def _tool_available(tool_name: str) -> bool:
 
 
 def _tool_version(tool_name: str) -> str:
+    """Return the first version line for a tool, or empty string if unavailable."""
     try:
         if tool_name == "ruff":
             completed = _run_ruff_command(["--version"], timeout=2.0)
@@ -122,6 +128,7 @@ def _tool_version(tool_name: str) -> str:
 
 
 def _available_map() -> Dict[str, bool]:
+    """Return a compact availability map for external tooling."""
     return {
         "ruff": _tool_available("ruff"),
         "pyright": _tool_available("pyright"),
@@ -130,6 +137,7 @@ def _available_map() -> Dict[str, bool]:
 
 
 def _safe_line(value: Any, default: int = 1) -> int:
+    """Coerce diagnostic line values to valid 1-based integers."""
     try:
         return max(1, int(value))
     except Exception:
@@ -137,6 +145,7 @@ def _safe_line(value: Any, default: int = 1) -> int:
 
 
 def _safe_col(value: Any, default: int = 1) -> int:
+    """Coerce diagnostic column values to valid 1-based integers."""
     try:
         return max(1, int(value))
     except Exception:
@@ -144,6 +153,7 @@ def _safe_col(value: Any, default: int = 1) -> int:
 
 
 def _parse_ruff_output(stdout: str) -> List[Dict[str, Any]]:
+    """Parse Ruff JSON output into Monaco-compatible diagnostics."""
     diagnostics: List[Dict[str, Any]] = []
     if not stdout.strip():
         return diagnostics
@@ -180,6 +190,7 @@ def _parse_ruff_output(stdout: str) -> List[Dict[str, Any]]:
 
 
 def _parse_pyright_output(stdout: str) -> List[Dict[str, Any]]:
+    """Parse Pyright JSON output into Monaco-compatible diagnostics."""
     diagnostics: List[Dict[str, Any]] = []
     if not stdout.strip():
         return diagnostics
@@ -220,12 +231,14 @@ def _parse_pyright_output(stdout: str) -> List[Dict[str, Any]]:
 
 
 def _write_temp_code(code: str) -> Path:
+    """Write code to a temporary .py file and return its path."""
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as handle:
         handle.write(code)
         return Path(handle.name)
 
 
 def _unique_rule_codes(issues: List[Dict[str, Any]]) -> List[str]:
+    """Return ordered, unique non-empty rule codes from diagnostics."""
     seen = set()
     ordered: List[str] = []
     for issue in issues:
@@ -238,6 +251,7 @@ def _unique_rule_codes(issues: List[Dict[str, Any]]) -> List[str]:
 
 
 def _changed_lines_count(before_code: str, after_code: str) -> int:
+    """Estimate the number of changed lines between two code snapshots."""
     before_lines = before_code.splitlines()
     after_lines = after_code.splitlines()
     sequence = difflib.SequenceMatcher(a=before_lines, b=after_lines)
@@ -250,6 +264,7 @@ def _changed_lines_count(before_code: str, after_code: str) -> int:
 
 
 def _lsp_markdown_to_text(value: Any) -> str:
+    """Flatten LSP markdown/string payloads into plain text."""
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
@@ -260,6 +275,7 @@ def _lsp_markdown_to_text(value: Any) -> str:
 
 
 def _map_lsp_completion_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a raw LSP completion item to Monaco suggestion fields."""
     label = str(item.get("label", "")).strip()
     if not label:
         return {}
@@ -275,7 +291,10 @@ def _map_lsp_completion_item(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class _PyrightLspClient:
+    """Minimal JSON-RPC client wrapper for pyright-langserver over stdio."""
+
     def __init__(self) -> None:
+        """Initialize lazy pyright-langserver client state."""
         self._process: Optional[subprocess.Popen[bytes]] = None
         self._reader_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
@@ -286,6 +305,7 @@ class _PyrightLspClient:
         self._document_uri = (Path(__file__).resolve().parent.parent / "lsp_buffer.py").as_uri()
 
     def _ensure_started(self) -> bool:
+        """Start pyright-langserver lazily and perform initialize handshake."""
         if self._process and self._process.poll() is None:
             return True
 
@@ -322,6 +342,7 @@ class _PyrightLspClient:
             return False
 
     def _reader_loop(self) -> None:
+        """Read JSON-RPC frames from LSP stdout and dispatch pending responses."""
         process = self._process
         if not process or not process.stdout:
             return
@@ -329,6 +350,7 @@ class _PyrightLspClient:
         while True:
             headers: Dict[str, str] = {}
             while True:
+                # LSP frames arrive as HTTP-like headers followed by JSON payload.
                 line = stream.readline()
                 if not line:
                     self._flush_pending_with_error("Pyright LSP finalizado.")
@@ -353,11 +375,13 @@ class _PyrightLspClient:
             if isinstance(payload, dict) and "id" in payload:
                 request_id = int(payload["id"])
                 with self._lock:
+                    # Match responses with pending synchronous requests by id.
                     waiter = self._pending.pop(request_id, None)
                 if waiter:
                     waiter.put(payload)
 
     def _send(self, payload: Dict[str, Any]) -> None:
+        """Send one JSON-RPC payload through the LSP stdin stream."""
         process = self._process
         if not process or not process.stdin:
             raise RuntimeError("Pyright LSP no disponible.")
@@ -367,6 +391,7 @@ class _PyrightLspClient:
         process.stdin.flush()
 
     def _request(self, method: str, params: Dict[str, Any], timeout: float = 4.0) -> Dict[str, Any]:
+        """Send an LSP request and wait synchronously for its response."""
         if not self._ensure_started():
             raise RuntimeError("No se pudo iniciar pyright-langserver.")
         with self._lock:
@@ -387,11 +412,13 @@ class _PyrightLspClient:
         return response
 
     def _notify(self, method: str, params: Dict[str, Any]) -> None:
+        """Send an LSP notification without waiting for a response."""
         if not self._ensure_started():
             raise RuntimeError("No se pudo iniciar pyright-langserver.")
         self._send({"jsonrpc": "2.0", "method": method, "params": params})
 
     def _sync_document(self, code: str) -> None:
+        """Open or update the in-memory LSP document with latest editor code."""
         self._document_version += 1
         if not self._document_opened:
             self._notify(
@@ -416,6 +443,7 @@ class _PyrightLspClient:
         )
 
     def complete(self, code: str, line: int, column: int) -> Dict[str, Any]:
+        """Request completion items for a given cursor position."""
         self._sync_document(code)
         response = self._request(
             "textDocument/completion",
@@ -436,6 +464,7 @@ class _PyrightLspClient:
         return {"ok": True, "items": parsed_items}
 
     def hover(self, code: str, line: int, column: int) -> Dict[str, Any]:
+        """Request hover documentation for a given cursor position."""
         self._sync_document(code)
         response = self._request(
             "textDocument/hover",
@@ -451,6 +480,7 @@ class _PyrightLspClient:
         return {"ok": True, "contents": contents}
 
     def _flush_pending_with_error(self, message: str) -> None:
+        """Fail all pending requests when the LSP stream closes unexpectedly."""
         with self._lock:
             pending = list(self._pending.values())
             self._pending.clear()
@@ -458,6 +488,7 @@ class _PyrightLspClient:
             waiter.put({"error": {"message": message}})
 
     def shutdown(self) -> None:
+        """Terminate the pyright-langserver process and reset client state."""
         process = self._process
         if not process:
             return
@@ -470,6 +501,7 @@ class _PyrightLspClient:
         self._document_opened = False
 
     def status(self) -> Dict[str, Any]:
+        """Return availability and runtime status for pyright-langserver."""
         command = _pyright_langserver_command()
         if not command:
             return {
@@ -503,17 +535,23 @@ class _PyrightLspClient:
 
 
 class VscodeApi:
+    """Bridge exposed to pywebview for Monaco editor actions and tooling."""
+
     def __init__(self) -> None:
+        """Initialize VSCode-like API facade used by pywebview frontend."""
         self._lsp_client = _PyrightLspClient()
 
     def _current_position(self) -> tuple[str, str, str]:
+        """Return the current module/lesson/exercise ids from persisted progress."""
         progress = load_progress()
         return get_current_position(progress)
 
     def close(self) -> None:
+        """Release resources before closing the pywebview application."""
         self._lsp_client.shutdown()
 
     def _current_exercise(self) -> Dict[str, Any]:
+        """Resolve the current exercise, falling back to the first available one."""
         module_id, lesson_id, exercise_id = self._current_position()
         try:
             return find_exercise(module_id, lesson_id, exercise_id)
@@ -524,6 +562,7 @@ class VscodeApi:
             return find_exercise(first_module["id"], first_lesson["id"], first_exercise["id"])
 
     def _study_hint(self, code: str, result: Dict[str, Any]) -> str:
+        """Generate a short pedagogical hint for common runtime mistakes."""
         lowered = code.lower()
         status = str(result.get("status", "")).lower()
         joined_errors = (str(result.get("stderr", "")) + "\n" + str(result.get("message", ""))).lower()
@@ -544,6 +583,7 @@ class VscodeApi:
         return ""
 
     def load_initial_code(self) -> str:
+        """Load last saved code for the current exercise or its starter template."""
         exercise = self._current_exercise()
         module_id = exercise.get("module_id", "")
         lesson_id = exercise.get("lesson_id", "")
@@ -555,6 +595,7 @@ class VscodeApi:
         return str(exercise.get("starter_code", ""))
 
     def save_code(self, code: str) -> Dict[str, Any]:
+        """Persist current editor code in the progress record for the exercise."""
         try:
             exercise = self._current_exercise()
             module_id = exercise.get("module_id", "")
@@ -582,6 +623,7 @@ class VscodeApi:
             return {"ok": False, "error": str(exc)}
 
     def run_code(self, code: str, mode: str = "study") -> Dict[str, Any]:
+        """Run code only (without exercise validation) and return execution result."""
         current_mode = "exam" if str(mode).lower() == "exam" else "study"
         exercise = self._current_exercise()
         run_result = run_user_code(code, setup=exercise.get("setup", {}))
@@ -600,6 +642,7 @@ class VscodeApi:
         return payload
 
     def check_code(self, code: str, mode: str = "study") -> Dict[str, Any]:
+        """Run code and validate it against the current exercise checks."""
         current_mode = "exam" if str(mode).lower() == "exam" else "study"
         exercise = self._current_exercise()
         run_result = run_user_code(code, setup=exercise.get("setup", {}))
@@ -627,6 +670,7 @@ class VscodeApi:
         return payload
 
     def api_capabilities(self) -> Dict[str, Any]:
+        """Expose availability and versions for lint/type/LSP tooling."""
         available = _available_map()
         versions = {
             "ruff": _tool_version("ruff") if available["ruff"] else "",
@@ -640,9 +684,11 @@ class VscodeApi:
         }
 
     def api_lsp_status(self) -> Dict[str, Any]:
+        """Expose pyright-langserver runtime status to the frontend."""
         return self._lsp_client.status()
 
     def syntax_check(self, code: str) -> Dict[str, Any]:
+        """Return syntax diagnostics using Python's AST parser."""
         try:
             ast.parse(code)
             return {"ok": True, "diagnostics": [], "message": "", "available": _available_map()}
@@ -672,6 +718,7 @@ class VscodeApi:
             return {"ok": False, "diagnostics": [], "message": str(exc), "available": _available_map()}
 
     def lsp_complete(self, code: str, line: int, column: int) -> Dict[str, Any]:
+        """Proxy completion requests to the local LSP client."""
         try:
             result = self._lsp_client.complete(code, line, column)
             result["available"] = _available_map()
@@ -680,6 +727,7 @@ class VscodeApi:
             return {"ok": False, "items": [], "message": str(exc), "available": _available_map()}
 
     def lsp_hover(self, code: str, line: int, column: int) -> Dict[str, Any]:
+        """Proxy hover requests to the local LSP client."""
         try:
             result = self._lsp_client.hover(code, line, column)
             result["available"] = _available_map()
@@ -688,6 +736,7 @@ class VscodeApi:
             return {"ok": False, "contents": "", "message": str(exc), "available": _available_map()}
 
     def lint_code(self, code: str) -> Dict[str, Any]:
+        """Run Ruff lint and return diagnostics in frontend-friendly shape."""
         available = _available_map()
         if not available["ruff"]:
             return {
@@ -736,6 +785,7 @@ class VscodeApi:
                 pass
 
     def typecheck_code(self, code: str) -> Dict[str, Any]:
+        """Run Pyright type checking and return parsed diagnostics."""
         available = _available_map()
         if not available["pyright"]:
             return {
@@ -784,6 +834,7 @@ class VscodeApi:
                 pass
 
     def format_code(self, code: str) -> Dict[str, Any]:
+        """Format code with Ruff format and report whether content changed."""
         available = _available_map()
         if not available["ruff"]:
             return {
@@ -847,6 +898,7 @@ class VscodeApi:
                 pass
 
     def fix_code(self, code: str) -> Dict[str, Any]:
+        """Apply Ruff safe fixes and return preview metadata for the frontend."""
         available = _available_map()
         if not available["ruff"]:
             return {
@@ -952,6 +1004,7 @@ class VscodeApi:
 
 
 def run_app() -> None:
+    """Launch the pywebview window hosting the Monaco-based UI."""
     if webview is None:
         raise RuntimeError("pywebview no esta instalado. Instala con: python -m pip install pywebview")
 

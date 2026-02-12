@@ -1,3 +1,5 @@
+"""Exercise validation helpers for safe execution and learner feedback."""
+
 import ast
 import io
 import math
@@ -7,10 +9,13 @@ from typing import Any, Dict, List, Tuple
 
 
 class ValidationError(Exception):
+    """Raised when user code violates safety constraints or syntax rules."""
+
     pass
 
 
 def _check_code_is_safe(code: str) -> ast.AST:
+    """Parse code and reject unsafe syntax, imports, and blocked builtins."""
     try:
         tree = ast.parse(code, mode="exec")
     except SyntaxError as exc:
@@ -49,6 +54,7 @@ def _check_code_is_safe(code: str) -> ast.AST:
 
 
 def _safe_builtins() -> dict:
+    """Return the limited builtins dictionary exposed to learner exec()."""
     return {
         "abs": abs,
         "float": float,
@@ -69,6 +75,7 @@ def _safe_builtins() -> dict:
 
 
 def _as_list(value: Any, warnings: List[str]) -> Any:
+    """Convert iterables to list for comparisons while preserving text types."""
     if isinstance(value, (str, bytes, bytearray)):
         return value
     if isinstance(value, map):
@@ -83,6 +90,7 @@ def _as_list(value: Any, warnings: List[str]) -> Any:
 
 
 def _list_close(got: Any, expected: List[float]) -> Tuple[bool, str, List[str], Dict[str, Any]]:
+    """Compare numeric iterables against expected floats using tolerance 1e-6."""
     warnings: List[str] = []
     got = _as_list(got, warnings)
     if isinstance(got, (str, bytes, bytearray)):
@@ -110,6 +118,7 @@ def _list_close(got: Any, expected: List[float]) -> Tuple[bool, str, List[str], 
 
 
 def _lint_whitespace(code: str) -> Tuple[bool, str, int, int]:
+    """Check indentation tabs and trailing spaces, returning issue position."""
     lines = code.splitlines()
     for idx, line in enumerate(lines, start=1):
         # detect tabs in indentation
@@ -123,6 +132,7 @@ def _lint_whitespace(code: str) -> Tuple[bool, str, int, int]:
 
 
 def _run_checks(checks: List[Dict], local_vars: Dict[str, Any], captured_out: str) -> Tuple[bool, str, List[str]]:
+    """Run checks using the legacy signature and default exercise metadata."""
     # fallback exercise-wide accepted vars handled in validate_user_code via "exercise" object
     return _run_checks_with_exercise(checks, local_vars, captured_out, {})
 
@@ -142,6 +152,7 @@ def _select_var(var: str, local_vars: Dict[str, Any], exercise: Dict) -> Tuple[s
 
 
 def _run_checks_with_exercise(checks: List[Dict], local_vars: Dict[str, Any], captured_out: str, exercise: Dict) -> Tuple[bool, str, List[str]]:
+    """Run supported check types and produce actionable, learner-friendly feedback."""
     notes: List[str] = []
     output_checks = [c for c in checks if c.get("type") == "output_contains"]
     output_has_expected = False
@@ -201,6 +212,7 @@ def _run_checks_with_exercise(checks: List[Dict], local_vars: Dict[str, Any], ca
 
 
 def validate_user_code(code: str, exercise: dict) -> Dict[str, str]:
+    """Validate learner code safely and return status, message, output and details."""
     ok_ws, ws_msg, ws_line, ws_col = _lint_whitespace(code)
     if not ok_ws:
         return {
